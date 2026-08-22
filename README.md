@@ -5,6 +5,42 @@ a pipeline of small scripts with a fact-check gate and one interactive
 human review — built to run many JDs back-to-back, not just one at a
 time.
 
+## Deterministic RAG
+
+The part of this project I'm proudest of isn't any single stage — it's
+that the whole pipeline is built around a form of retrieval-augmented
+generation that doesn't have to trust the model's word for what's
+true.
+
+Most RAG systems retrieve by similarity: embed a query, pull back the
+top-k nearest chunks, and hope the generation stayed within them —
+there's no hard guarantee it did. This pipeline sidesteps that
+uncertainty at every layer:
+
+- **The retrieval corpus is closed and ID-addressed, not searched.**
+  Stage 2 extracts your resume once into `claims_ledger.json` — atomic,
+  verifiable facts, each with its own `claim_id` (`C001`, `C002`, ...).
+  It's small enough to hand a model in full, so there's no similarity
+  search, no top-k cutoff, no risk of the right fact scoring just
+  below the threshold and getting silently dropped.
+- **Generation cites its source at write time, not after.** Stage 5
+  can't propose an edit in the abstract — every one must declare
+  exactly which `claim_id`(s) it's grounded in
+  (`claim_ids_referenced`), before it's ever checked.
+- **The verification gate is deterministic, not another opinion.**
+  Stage 6 runs in two tiers: an edit citing no claim is discarded by
+  plain code, zero LLM calls, before any model ever weighs in on it —
+  not "probably ungrounded," categorically unverifiable. Everything
+  that *does* cite a claim gets checked against that claim's exact
+  original wording, and `fabricated` is a hard, permanent discard —
+  never a soft flag another stage could later wave through.
+
+Nothing reaches stage 8 (your review) or a real document without
+surviving that gate, and every rejection is logged with its reasoning
+in `discarded_edits.jsonl` — so "this is grounded" isn't an assumption
+about the model's behavior, it's an auditable property of the
+pipeline itself.
+
 ## Folder structure
 
 ```
