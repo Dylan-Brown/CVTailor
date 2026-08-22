@@ -1,0 +1,40 @@
+# pipeline.yaml — top-level pipeline configuration (IaC-style, sibling
+# to src/, config/, applications/, extension/, docs/). Credential
+# VALUES never live here -- only pointers to config/credentials/ files.
+# See docs/QUICKSTART.md for day-to-day commands.
+
+# Who decides approve/reject/edit at stage 8 review.
+#   User  -> the real interactive CLI (src/stages/py_stage08_agentic_update_review.py)
+#   Agent -> whichever wrapper is named below, via
+#            src/ai_wrappers/py_stage08_reviewer_interface.py
+review_stage_assignee: User
+
+# Only consulted when review_stage_assignee is Agent. Currently only
+# "Gemini" has a registered wrapper (src/ai_wrappers/py_stage08_reviewer_gemini.py) --
+# see AGENT_BACKENDS in py_stage08_reviewer_interface.py to add another.
+selected_agent: Gemini
+
+# Whether run_pipeline.py's checks (see src/checkpoints/) should run
+# automatically as part of a batch, or only when invoked by hand.
+#   Yes        -> run every checkpoint after each batch
+#   StageX Only -> run only the checkpoint(s) named for that stage
+#   No         -> never run automatically (default today -- checkpoints
+#                 are all still manual invocations, this flag isn't
+#                 wired into run_pipeline.py yet)
+always_run_pipeline_checks: No
+
+# Where to mirror everything printed to the console during an
+# end-to-end pipeline run + its checks. "None" means no copy is kept
+# beyond your terminal's own scrollback (this pipeline's own
+# src/core/io_utils.py log_event() JSONL logs under logs/ are separate
+# and always written regardless of this setting).
+pipeline_log_path: None
+
+# Used by src/controls/py_post_pipeline_open_app_urls.py.
+preferred_browser: chrome
+
+# Credential POINTERS only -- see config/credentials/*.txt.example for
+# the actual files these name. Real values are never stored here.
+credentials:
+  anthropic_key: config/credentials/anthropic_key.txt
+  gemini_key: config/credentials/gemini_key.txt

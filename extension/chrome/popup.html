@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --bg-color: #ffffff;
+      --text-color: #202124;
+      --text-secondary: #5f6368;
+      --border-color: #dadce0;
+      --hover-bg: #f1f3f4;
+      --accent-color: #1a73e8;
+      --accent-hover: #1557b0;
+      --disabled-bg: #f1f3f4;
+      --disabled-text: #9aa0a6;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #202124;
+        --text-color: #e8eaed;
+        --text-secondary: #9aa0a6;
+        --border-color: #5f6368;
+        --hover-bg: #303134;
+        --accent-color: #8ab4f8;
+        --accent-hover: #aecbfa;
+        --disabled-bg: #303134;
+        --disabled-text: #5f6368;
+      }
+    }
+
+    body {
+      width: 220px;
+      font-family: "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      padding: 12px;
+      margin: 0;
+      background: var(--bg-color);
+      color: var(--text-color);
+    }
+    button {
+      width: 100%;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      border: none;
+      border-radius: 4px;
+      background: var(--accent-color);
+      color: var(--bg-color);
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-hover); }
+    button:disabled {
+      background: var(--disabled-bg);
+      color: var(--disabled-text);
+      cursor: default;
+    }
+    #status {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      min-height: 16px;
+    }
+    #set-shortcut-link {
+      display: block;
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--accent-color);
+      text-decoration: none;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: inherit;
+    }
+    #set-shortcut-link:hover,
+    #set-shortcut-link:focus-visible {
+      text-decoration: underline;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      font-size: 10.5px;
+    }
+    .footer a.support {
+      color: var(--accent-color);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .footer a.support:hover,
+    .footer a.support:focus-visible {
+      text-decoration: underline;
+      color: var(--accent-hover);
+    }
+  </style>
+</head>
+<body>
+  <button id="extract-btn">Extract Job Details<span id="shortcut-label"></span></button>
+  <button id="set-shortcut-link" hidden>Set keyboard shortcut &rarr;</button>
+  <div id="status"></div>
+  <div class="footer">
+    <span id="version-label"></span>
+    <a class="support" href="https://paypal.me/dylbrn" target="_blank" rel="noopener">Support this extension</a>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

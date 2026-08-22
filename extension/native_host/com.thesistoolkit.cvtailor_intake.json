@@ -1,0 +1,9 @@
+{
+  "name": "com.thesistoolkit.cvtailor_intake",
+  "description": "Sends job description JSON from the Job Data Harvester extension directly to CVTailor's intake stage",
+  "path": "REPLACE_WITH_ABSOLUTE_PATH_TO_native_host.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://miloklgjeihnnkohppgclinoellnpibp/"
+  ]
+}

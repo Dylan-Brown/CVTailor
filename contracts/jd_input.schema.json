@@ -1,0 +1,174 @@
+{
+  "description": "Contract for the Chrome extension's output. `full_description_text`\nis the only hard requirement \u2014 everything else is best-effort\nenrichment. If the extension can only reliably grab the raw JD body\ntext, that alone is enough for stage 3/3 to work from; the rest\njust makes the LLM's job easier and cheaper when it's available.\n\nTip for whoever's building the extension: check for a\n`<script type=\"application/ld+json\">` block with `\"@type\": \"JobPosting\"`\nbefore falling back to DOM scraping \u2014 Greenhouse, Lever, Workday, and\nmost ATS-hosted postings (and many LinkedIn/Indeed listings) embed\nschema.org JobPosting JSON-LD, which maps almost directly onto the\nfields below and is far more reliable than reading visible text.",
+  "properties": {
+    "source_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Url"
+    },
+    "scraped_at": {
+      "title": "Scraped At",
+      "type": "string"
+    },
+    "company": {
+      "title": "Company",
+      "type": "string"
+    },
+    "role_title": {
+      "title": "Role Title",
+      "type": "string"
+    },
+    "location": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Location"
+    },
+    "remote_type": {
+      "default": "unspecified",
+      "enum": [
+        "remote",
+        "hybrid",
+        "onsite",
+        "unspecified"
+      ],
+      "title": "Remote Type",
+      "type": "string"
+    },
+    "employment_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Employment Type"
+    },
+    "salary_min": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Salary Min"
+    },
+    "salary_max": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Salary Max"
+    },
+    "salary_currency": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Salary Currency"
+    },
+    "salary_period": {
+      "anyOf": [
+        {
+          "enum": [
+            "year",
+            "hour",
+            "month"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Salary Period"
+    },
+    "full_description_text": {
+      "title": "Full Description Text",
+      "type": "string"
+    },
+    "requirements_raw": {
+      "description": "Bullet points if the page had a clearly delimited requirements/qualifications list \u2014 the must-have bar. Fine to leave empty \u2014 stage 4 will still derive requirements from full_description_text via LLM if this is empty.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Requirements Raw",
+      "type": "array"
+    },
+    "responsibilities_raw": {
+      "description": "Bullet points describing what the role actually involves day to day, if the page had a clearly delimited responsibilities/duties list. Weighted equally with requirements_raw in gap analysis \u2014 what a role involves is just as much a fit signal as its stated requirements bar.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Responsibilities Raw",
+      "type": "array"
+    },
+    "nice_to_have_raw": {
+      "description": "Bullet points for preferred-but-not-required qualifications, if the page had a clearly delimited list. Lower priority than requirements_raw/responsibilities_raw in gap analysis.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Nice To Have Raw",
+      "type": "array"
+    },
+    "extraction_method": {
+      "default": "dom_heuristic",
+      "enum": [
+        "json_ld",
+        "dom_heuristic",
+        "manual_paste"
+      ],
+      "title": "Extraction Method",
+      "type": "string"
+    },
+    "extension_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extension Version"
+    }
+  },
+  "required": [
+    "company",
+    "role_title",
+    "full_description_text"
+  ],
+  "title": "JDInput",
+  "type": "object"
+}

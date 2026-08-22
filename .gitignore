@@ -1,0 +1,64 @@
+# ---- Python build artifacts ----
+__pycache__/
+*.pyc
+
+# ---- Secrets — if you ever add a .env loader instead of $env: vars ----
+.env
+*.env
+
+# ---- Native messaging host private key -- never commit this. Losing
+# it means the extension gets a new random ID and needs re-registering,
+# but that's recoverable; a committed private key isn't. ----
+*.pem
+
+# ---- API credentials -- dedicated entry (not just the root .gitignore's
+# loose *key*.txt pattern), so it's unmistakable this folder specifically
+# holds real secrets once filled in. config/credentials/*_key.txt.example
+# files ARE tracked (placeholders only); copy one to <name>_key.txt (no
+# .example suffix) and fill in your real key -- that real file is what
+# this pattern excludes. ----
+config/credentials/*_key.txt
+
+# ---- Your personal inputs: resume, cover letter sample, applicant info ----
+# (folder structure kept via .gitkeep; actual files never committed)
+config/resume/*
+!config/resume/.gitkeep
+config/resume_template/*
+!config/resume_template/.gitkeep
+# ---- Resume variant configs: your real ones point at your real resume
+# filenames (personal), but the *.example.json templates that ship the
+# schema stay tracked so a fresh clone has something to copy from. ----
+config/resume_variants/*
+!config/resume_variants/.gitkeep
+!config/resume_variants/*.example.json
+config/cover_letter_template/*
+!config/cover_letter_template/.gitkeep
+config/cover_letter_sample/*
+!config/cover_letter_sample/.gitkeep
+config/applicant_info.json
+
+# ---- Pipeline working state and final output — generated, personal, or both ----
+applications/*
+!applications/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# ---- src/util/py_zip_materials.py's output: a zip of every
+# applications/*/generated_materials/ file, staged for review/sharing.
+# Not used by the pipeline itself and fully regenerable by re-running
+# that script against applications/ -- not source. ----
+materials_review.zip
+cover_letters_review.zip
+
+# ---- Virtual environments, if you ever create one in-place ----
+venv/
+.venv/
+
+# ---- Editor / OS cruft (trim if you don't want these) ----
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# ---- Claude ----
+.claude/

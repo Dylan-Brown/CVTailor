@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Job Data Harvester",
+  "version": "1.1.0",
+  "description": "Extracts structured JSON from job boards using local Gemini Nano and sends it directly to CVTailor's intake stage.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhzCC/qlQ0hBhvMf0TJKL5WuDkb3TXkWH/5pk/DMCnQ/LfP1V5piyD0GtLZ7gk0FKxSY0P01Xtau52N3KiCO03M+RV8QNvya4EI93vQMyu66LAkbXtQSKWgiRVuzh1rRFPXpiRltin31m2LCE9YJVJysymmahyLokJvbWDPk4icrm4fJUVwVkMAlaH6kJcR2N81DrmpwSBxhLrfZDNajZfUZgz3VBfUogZX2u63p6Ii2RwdrjPaR6m1/jA8y4y7KbpKTtjVrRS22donGgCsyq/oKimOJwXEVD7yTB6cvSVZb4DmT5M1tiErDNFYS3DBfDP2+t9J9BHzqgR7rMcWA0ewIDAQAB",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "nativeMessaging"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "images/icon-16.png",
+    "32": "images/icon-32.png",
+    "48": "images/icon-48.png",
+    "128": "images/icon-128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "images/icon-16.png",
+      "32": "images/icon-32.png",
+      "48": "images/icon-48.png"
+    },
+    "default_popup": "popup.html",
+    "default_title": "Extract Job Details"
+  },
+  "commands": {
+    "extract-job-details": {
+      "suggested_key": {
+        "default": "Alt+Shift+E",
+        "mac": "Alt+Shift+E"
+      },
+      "description": "Extract job details from the current page"
+    }
+  }
+}
