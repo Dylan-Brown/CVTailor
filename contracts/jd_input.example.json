@@ -1,0 +1,30 @@
+{
+  "source_url": "https://boards.greenhouse.io/acme/jobs/1234567",
+  "scraped_at": "2026-07-27T14:32:00",
+  "company": "Acme Corp",
+  "role_title": "Senior Cloud Architect",
+  "location": "Philadelphia, PA",
+  "remote_type": "remote",
+  "employment_type": "full-time",
+  "salary_min": 160000,
+  "salary_max": 195000,
+  "salary_currency": "USD",
+  "salary_period": "year",
+  "full_description_text": "Acme is looking for a Senior Cloud Architect to lead our AWS migration...",
+  "requirements_raw": [
+    "7+ years of backend or cloud infrastructure experience",
+    "Deep AWS experience (ECS, Lambda, RDS)",
+    "Experience leading technical migrations"
+  ],
+  "responsibilities_raw": [
+    "Own the technical roadmap for migrating monolith services to AWS",
+    "Partner with security to design least-privilege IAM patterns",
+    "Mentor mid-level engineers on cloud architecture patterns"
+  ],
+  "nice_to_have_raw": [
+    "Experience with Terraform or another IaC tool",
+    "Prior fintech or regulated-industry experience"
+  ],
+  "extraction_method": "json_ld",
+  "extension_version": "0.1.0"
+}

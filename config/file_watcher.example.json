@@ -1,0 +1,52 @@
+{
+  "_comment": "Any path here that isn't a full C:/... path is resolved relative to this file's own directory (jobs/config/) \u2014 e.g. '../applications' means jobs/applications.",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "db_file": "trigger_queue.sqlite3"
+  },
+  "watcher": {
+    "debounce_seconds": 0.75
+  },
+  "logging": {
+    "log_file": "../logs/file_watcher.json"
+  },
+  "intake": {
+    "watch_dir": "C:/path/to/your/cloud-synced/intake/folder",
+    "action": "save_job_details"
+  },
+  "applications": {
+    "applications_root": "../applications",
+    "input_filename": "jd_input.json",
+    "python_exe": "C:/path/to/your/python.exe",
+    "pipeline_script": "../run_pipeline.py",
+    "pipeline_args": [
+      "--app",
+      "{application_id}"
+    ],
+    "max_concurrent_runs": 3
+  },
+  "materials_export": {
+    "generated_materials_dirname": "generated_materials",
+    "proton_materials_root": "C:/path/to/your/cloud-synced/materials/folder"
+  },
+  "metrics": {
+    "enabled": true,
+    "_comment": "Metric A only records if jd_input.json contains these two fields \u2014 the extension must carry them forward from the trigger object it received via /poll. See extension_background_snippet.js.",
+    "intake_timestamp_field": "intake_enqueued_at",
+    "intake_trigger_id_field": "intake_trigger_id"
+  },
+  "lm_studio": {
+    "enabled": true,
+    "_comment": "model_id must exactly match an identifier from `lms ps --json` / `lms ls` on this machine \u2014 verify it, don't assume the format below is right.",
+    "model_id": "your-model-id-here",
+    "base_url": "http://localhost:1234/v1",
+    "exe_candidates": [
+      "%LOCALAPPDATA%/Programs/LM Studio/LM Studio.exe",
+      "%LOCALAPPDATA%/LM-Studio/LM Studio.exe"
+    ],
+    "app_launch_timeout_seconds": 90,
+    "model_load_timeout_seconds": 600,
+    "poll_interval_seconds": 2
+  }
+}
