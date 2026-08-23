@@ -1,0 +1,7 @@
+{
+  "label": "Job Title",
+  "resume": "Your Job Title Resume.pdf",
+  "resume_template": "Your Job Title Resume.docx",
+  "default": true,
+  "keywords": ["keyword-that-only-shows-up-in-a-matching-jd", "another-such-keyword"]
+}

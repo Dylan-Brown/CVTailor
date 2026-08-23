@@ -1,0 +1,34 @@
+# Top-level configuration for CVTailor. Copy this file to pipeline.yaml
+# (gitignored) and fill in your own values -- never commit personal
+# paths here.
+
+# 'User' for interactive manual review, or 'Agent' to use the AI reviewer below.
+review_stage_assignee: Agent
+
+# If 'Agent' is selected above, which backend reviews (Gemini, Claude, Local).
+selected_agent: Gemini
+
+# Whether stage 1's optional job-fit pre-screen runs automatically in
+# run_pipeline.py's single-JD mode. See config/applicant_info.example.json's
+# "job_scoring" section -- required if you turn this on.
+run_stage1_scoring: No
+
+# Run checkpoint validations automatically during batch processing (Yes, StageX Only, or No).
+always_run_pipeline_checks: Yes
+
+# Filepath to mirror console output to. 'None' relies on logs/*.jsonl only.
+pipeline_log_path: None
+
+# Default browser for opening application URLs (only Chrome has an extension).
+preferred_browser: chrome
+
+# Paths to API key files -- see config/credentials/*.example.txt.
+# Never store raw keys here, only paths.
+credentials:
+  anthropic_key: config/credentials/anthropic_key.txt
+  gemini_key: config/credentials/gemini_key.txt
+
+# Optional: absolute path to an Obsidian note with a "Job Applications"
+# table. If set, py_post_pipeline_store_applied.py --applied inserts a
+# new row at the top of that table. Leave as None to skip this entirely.
+application_progress_md_path: None

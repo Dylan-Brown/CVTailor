@@ -1,0 +1,27 @@
+openai>=1.50.0  # LM Studio's server is OpenAI-compatible -- this is the default
+                # provider, required for every run unless you pass --provider
+                # claude / --provider gemini.
+ddgs>=8.0  # free web search for stage 3 (company research) on the lmstudio path --
+           # note the package name is `ddgs`, NOT `duckduckgo_search`, which is
+           # deprecated and renamed as of mid-2025. Installing the old name will
+           # still technically work but prints a deprecation warning and won't
+           # get future updates.
+pydantic>=2.6
+pyspellchecker>=0.8.1  # typo detection for hand-typed edits during stage 8 review --
+                       # the one edit path that skips fact-checking entirely. Silently
+                       # degrades to no-op if missing.
+python-docx>=1.1
+pdfplumber>=0.11
+docx2pdf>=0.1.8  # optional — Windows/Mac + MS Word installed. Batch assemble falls
+                 # back to shipping .docx if conversion isn't available.
+anthropic>=0.40.0  # optional — only needed if you ever use --provider claude /
+                   # CVTAILOR_LLM_PROVIDER=claude. Not required for the LM Studio default.
+google-genai>=1.0.0  # optional — only needed if you ever use --provider gemini /
+                     # CVTAILOR_LLM_PROVIDER=gemini. Not required for the LM Studio default.
+watchdog>=4.0 # The next three are for the continuously running file watcher, which will
+              # read files from an intake location with job post urls inside a .md file, 
+              # open them in Chrome, and trigger the extension; it also will, once the 
+              # extension downloads the file to /applications/<app_id>/jd_input.json,
+              # trigger the pipeline to run concurrently up to a configured number of times.
+pyyaml>=6.0
+flask>=3.0

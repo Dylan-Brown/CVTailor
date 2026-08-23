@@ -1,0 +1,31 @@
+{
+  "name": "Dylan Brown",
+  "email": "you@example.com",
+  "phone": "215-555-0100",
+  "job_search_start_date": "2026-01-01",
+
+  "_job_scoring_comment": "job_scoring is entirely optional -- only needed if you actually run src/stages/py_stage01_score_jd_input.py (see pipeline.yaml's run_stage1_scoring). Delete this comment key and everything below it if you don't use stage 1.",
+  "job_scoring": {
+    "experience_summary": "N+ years in [your field], most recently [your most recent/current role] at [employer]",
+    "education": "Your School",
+    "core_strengths": ["Skill", "Skill", "Skill"],
+    "does_not_have": ["A skill you'd need to re-skill on for some postings"],
+    "target_roles": [
+      "Most-wanted role type",
+      "Next-most-wanted role type"
+    ],
+    "not_good_fit": ["A role type you'd technically qualify for but don't want"],
+    "min_salary": 150000,
+    "max_salary": 400000,
+    "required_remote": true,
+    "target_firms": ["A company you'd love to work for", "Another one"],
+    "target_titles": ["Title you're targeting", "Another title you're targeting"],
+    "weights": {
+      "resume_match": 0.40,
+      "role_type_match": 0.20,
+      "salary_match": 0.15,
+      "remote_confirmed": 0.15,
+      "firm_boost": 0.10
+    }
+  }
+}

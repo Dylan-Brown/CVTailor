@@ -1,0 +1,80 @@
+# ============================================================
+# TEMPLATE — READ ME FIRST, THEN DELETE THIS WHOLE BLOCK
+# ============================================================
+# 1. Copy this file to:  config/cover_letter_sample/cover_letter.txt
+#    (must end in plain ".txt", and must be the ONLY .txt file in
+#    this folder — the pipeline errors out if it finds more than one).
+#
+# 2. Delete this entire comment block (every line starting with "#")
+#    before running the pipeline. This file is fed to the LLM
+#    verbatim for style extraction — if this block is still here,
+#    it gets read as if it were part of your letter.
+#
+# 3. Three kinds of bracketed text appear below — treat them
+#    differently:
+#      [bracketed text]       -> fill in yourself, then delete the
+#                                 brackets. This is YOUR content.
+#      {{double-brace text}}  -> leave exactly as-is. The pipeline
+#                                 fills these in automatically at
+#                                 assembly time (today's date, the
+#                                 role/company you're applying to,
+#                                 a time-of-day greeting, etc.).
+#      ((double-paren text))  -> a layout note, not text — e.g.
+#                                 ((Signature)) just marks where a
+#                                 scanned signature would go.
+#
+# 4. Keep the overall shape (which lines are blank, where the
+#    salutation and sign-off fall) — the pipeline locates your
+#    letter's body by finding the salutation line (starts with
+#    "Dear "/"Good "/"{{Good") and the sign-off line (exactly
+#    "Best," / "Sincerely," / "Regards," / "Thank you,"), so those
+#    two anchors need to stay intact even as you rewrite everything
+#    around them.
+# ============================================================
+
+[Your Full Name]
+
+[Street Address]
+[City, State ZIP]
+
+[Your Professional Tagline]  |  {{Backend | Fullstack}} Engineer  |  [Another Specialty]  |  [Another Specialty]
+[Phone Number]  |  [Email Address]  |  [GitHub or Portfolio URL]  |  [LinkedIn URL]
+
+
+{{DATE (formatted like: August 8th, 2026)}}
+
+Re: {{ROLE_TITLE}} at {{COMPANY}}
+
+
+
+{{Good (Morning | Afternoon | Evening)}} {{<COMPANY> Recruiting Team | <Other Appropriate Addressee>}},
+
+[Opening paragraph — who you are, your current/most recent title, years of experience, where you're based, and that you're applying for this role. 2-3 sentences.]
+
+[Second paragraph — your core technical expertise: primary languages, frameworks, or domains, in one or two sentences.]
+
+Some highlights of my work include:
+
+• [Bullet 1 — your most significant ongoing responsibility. Include a concrete metric or scale if you have one, e.g. "$X in volume," "N users," "N% improvement."]
+
+• [Bullet 2 — a specific feature or initiative you owned end-to-end, and its concrete, measurable outcome.]
+
+• [Bullet 3 — a cross-functional or process-improvement win, e.g. replacing a manual process, partnering directly with a non-engineering team.]
+
+• [Bullet 4 — an engineering-quality or team-culture contribution: testing standards, documentation, code review, mentoring.]
+
+• [Bullet 5 — your approach to deployment/production practices: CI/CD, infrastructure as code, security posture, on-call ownership.]
+
+[Paragraph about how you help other engineers or elevate your team beyond your own individual output — leadership, mentoring, process you introduced.]
+
+What draws me to [Company Name] is [something genuinely true about what draws you to this kind of company or mission — kept broad/values-based here since it gets tailored per application].
+
+I'd welcome the chance to [closing call-to-action — what you want to discuss further, e.g. "talk more about my experience with X"].
+
+
+
+Best,
+
+((Signature))
+
+[Your Full Name]

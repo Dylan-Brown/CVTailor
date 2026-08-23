@@ -1,0 +1,91 @@
+# ---- Python build artifacts ----
+__pycache__/
+*.pyc
+
+# ---- Secrets — if you ever add a .env loader instead of $env: vars ----
+.env
+*.env
+
+# ---- Native messaging host private key -- never commit this. Losing
+# it means the extension gets a new random ID and needs re-registering,
+# but that's recoverable; a committed private key isn't. ----
+*.pem
+
+# ---- Native host manifest: real one has your machine's absolute path
+# and your real extension ID -- neither works for anyone else. See
+# com.thesistoolkit.cvtailor_intake.example.json, the tracked template. ----
+extension/native_host/com.thesistoolkit.cvtailor_intake.json
+
+# ---- API credentials -- dedicated entry (not just the root .gitignore's
+# loose *key*.txt pattern), so it's unmistakable this folder specifically
+# holds real secrets once filled in. config/credentials/*_key.example.txt
+# files ARE tracked (placeholders only); copy one to <name>_key.txt (no
+# .example) and fill in your real key -- that real file is what this
+# pattern excludes. The negation below is required: the root .gitignore's
+# *key*.txt would otherwise also swallow the tracked *_key.example.txt
+# placeholders, since "example" only appears mid-name, not at the end. ----
+config/credentials/*_key.txt
+!config/credentials/*_key.example.txt
+
+# ---- Your personal inputs: resume, cover letter sample, applicant info ----
+# (folder structure kept via .gitkeep; actual files never committed)
+config/resume_pdfs/*
+!config/resume_pdfs/TODO_Drop_resume_pdfs_here!.md
+config/resume_template/*
+!config/resume_template/.gitkeep
+!config/resume_template/*.example.docx
+# ---- Resume variant configs: your real ones point at your real resume
+# filenames (personal), but the *.example.json templates that ship the
+# schema stay tracked so a fresh clone has something to copy from. ----
+config/resume_variants/*
+!config/resume_variants/.gitkeep
+!config/resume_variants/*.example.json
+# If you ever hand-edit one of the *.example.json files above into a
+# real variant in place, instead of copying it to a new filename first,
+# re-ignore that exact filename here (this line wins -- later patterns
+# override earlier ones) so real resume/keyword content doesn't end up
+# tracked under its old *.example.json name. Remove the line again once
+# it's renamed away from *.example.json.
+config/resume_variants/ai_engineer.example.json
+config/cover_letter_template/*
+!config/cover_letter_template/.gitkeep
+config/cover_letter_sample/*
+!config/cover_letter_sample/.gitkeep
+!config/cover_letter_sample/*.example.txt
+config/applicant_info.json
+# ---- File watcher config: real one has your actual machine paths
+# (python.exe location, cloud-sync intake/materials folders) --
+# config/file_watcher.example.json is the tracked template to copy from. ----
+config/file_watcher.json
+
+# ---- Top-level pipeline config: real one can carry personal machine
+# paths (e.g. application_progress_md_path) -- pipeline.example.yaml is
+# the tracked template to copy from. ----
+pipeline.yaml
+
+# ---- Pipeline working state and final output — generated, personal, or both ----
+applications/*
+!applications/.gitkeep
+!applications/README.md
+logs/*
+!logs/.gitkeep
+
+# ---- src/util/py_zip_materials.py's output: a zip of every
+# applications/*/generated_materials/ file, staged for review/sharing.
+# Not used by the pipeline itself and fully regenerable by re-running
+# that script against applications/ -- not source. ----
+materials_review.zip
+cover_letters_review.zip
+
+# ---- Virtual environments, if you ever create one in-place ----
+venv/
+.venv/
+
+# ---- Editor / OS cruft (trim if you don't want these) ----
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# ---- Claude ----
+.claude/
