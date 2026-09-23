@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "core"))
-from batch_common import APPLICATIONS_ROOT, ARCHIVED_DIR, app_dirs, is_processed
+from batch_common import APPLICATIONS_ROOT, ARCHIVE_ROOT, app_dirs, is_processed
 
 
 def _read_json(path: Path):
@@ -58,7 +58,12 @@ def run():
 
     raw_intake = sorted(p for p in APPLICATIONS_ROOT.iterdir() if p.is_file() and p.suffix.lower() == ".json") \
         if APPLICATIONS_ROOT.is_dir() else []
-    archived = sorted(p for p in ARCHIVED_DIR.iterdir() if p.is_dir()) if ARCHIVED_DIR.is_dir() else []
+    # Flattened across every outcome subfolder (applied/cut_off/revisit/test/done) --
+    # ARCHIVE_ROOT itself only holds those five category folders, not app folders directly.
+    archived = sorted(
+        p for cat_dir in ARCHIVE_ROOT.iterdir() if cat_dir.is_dir()
+        for p in cat_dir.iterdir() if p.is_dir()
+    ) if ARCHIVE_ROOT.is_dir() else []
     dirs = app_dirs()
 
     rows = []
@@ -69,7 +74,7 @@ def run():
         counts = _effective_edit_counts(app_dir)
 
         if has_output or is_processed(app_dir):
-            stage, action = "done", "-" if not archived else "python src/controls/py_pipeline_store_archive.py --jd " + app_id
+            stage, action = "done", "-" if not archived else "python src/controls/py_post_pipeline_store_applied.py " + app_id
         elif (app_dir / "review_decisions.json").is_file():
             stage, action = "reviewed", "python src/controls/py_pipeline_assemble.py"
         elif counts is not None and (counts[0] + counts[1]) == 0:

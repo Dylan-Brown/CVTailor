@@ -87,6 +87,27 @@ def _loaded_model_identifiers() -> set[str]:
     return {m.get("identifier", "") for m in loaded}
 
 
+def _lms_unload_model(model_id: str) -> bool:
+    try:
+        result = subprocess.run(["lms", "unload", model_id], capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def _evict_other_models(model_id: str) -> None:
+    """`lms load` never evicts anything else -- models pile up in memory
+    across runs made with different model_id values (e.g. -Model) until
+    they're competing for VRAM/RAM and inference stalls. Best-effort:
+    a failed unload just gets logged, never blocks loading model_id."""
+    for loaded_id in _loaded_model_identifiers():
+        if loaded_id == model_id:
+            continue
+        print(f"[lm_studio] unloading stray model {loaded_id!r} to free VRAM/RAM...")
+        if not _lms_unload_model(loaded_id):
+            print(f"[lm_studio] `lms unload {loaded_id}` failed -- continuing anyway.")
+
+
 def _lms_load_model(model_id: str, timeout: int) -> bool:
     print(f"[lm_studio] loading {model_id!r} (this can take a while for a 14B model)...")
     try:
@@ -128,9 +149,11 @@ def ensure_lm_studio_ready(
     """
     exe_candidates = exe_candidates or DEFAULT_EXE_CANDIDATES
 
-    if _server_reachable(base_url) and model_id in _loaded_model_identifiers():
-        print(f"[lm_studio] already serving {model_id!r} -- nothing to do.")
-        return True
+    if _server_reachable(base_url):
+        _evict_other_models(model_id)
+        if model_id in _loaded_model_identifiers():
+            print(f"[lm_studio] already serving {model_id!r} -- nothing to do.")
+            return True
 
     if not _app_process_running():
         _launch_app(exe_candidates)
@@ -150,6 +173,8 @@ def ensure_lm_studio_ready(
             return False
         time.sleep(poll_interval)
     print("[lm_studio] server is up.")
+
+    _evict_other_models(model_id)
 
     if model_id not in _loaded_model_identifiers():
         if not _lms_load_model(model_id, model_load_timeout):

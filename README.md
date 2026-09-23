@@ -62,3 +62,4 @@ CVTailor is built to process many applications concurrently.
 * **Smart Document Assembly:** Replaces text inside your `.docx` templates recursively without breaking your existing formatting, tables, or styles.
 * **Auto-Formatting:** Automatically applies progressive typography compression to ensure your resume strictly hits your page limits (e.g., exactly 1 or 2 pages).
 
+*(Tip: Use **Text Blaze** (a browser extension for Chrome and Chromium-based browsers) to create text replacement shortcuts for quickly filling out application forms.)*

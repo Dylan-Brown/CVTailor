@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """
-py_post_pipeline_verify_materials.py
-====================================
-The automated Tier 1 "Definition of Done" gate. 
-Scans final assembled documents for missing keywords, leaked placeholders, and page limit violations.
-
-Usage:
-    python src/checkpoints/py_post_pipeline_verify_materials.py --all
+py_post_pipeline_verify_materials.py -- the automated Tier 1 "Definition
+of Done" gate: missing keywords, leaked placeholders, page limits.
 """
 import argparse
 import json
@@ -27,18 +22,12 @@ COVER_LETTER_MAX_PAGES_DEFAULT = 1
 # this fixed prefix rather than an exact string.
 _KEYWORD_CHECK_PREFIX = "required JD keywords present in resume text"
 
-# Checks that are worth-a-look signals, not hard failures -- never
-# printed in red, regardless of what else did or didn't pass. A missed
-# keyword or a resume that got zero approved edits are both things
-# you'd want to notice, but neither is in the same class as a
-# placeholder leak, an unreadable document, or a broken edit.
+# Worth-a-look signals, never printed in red -- not in the same class
+# as a placeholder leak, unreadable document, or broken edit.
 _SOFT_CHECK_PREFIXES = (_KEYWORD_CHECK_PREFIX, "at least one RESUME edit was approved")
 
-# ANSI font-color codes (not background highlight) -- green/orange for
-# the app header (overall pass/fail), red for individual ✗ lines, yellow
-# for a ✗ keywords line specifically (see _soft_passed). Only applied
-# when stdout is a real terminal, so piping/redirecting output to a
-# file doesn't end up full of escape-code noise.
+# ANSI font colors: green/orange for the app header, red for ✗ lines,
+# yellow for soft ✗ (see _soft_passed). Only applied on a real terminal.
 _RESET = "\033[0m"
 _GREEN = "\033[32m"
 _ORANGE = "\033[38;5;208m"
@@ -49,10 +38,6 @@ _YELLOW = "\033[33m"
 def _colorize(text: str, color: str) -> str:
     return f"{color}{text}{_RESET}" if sys.stdout.isatty() else text
 
-# Known-bad leftover strings this project has actually shipped in real
-# output at least once. Not a general profanity/placeholder filter --
-# specific phrases from specific incidents, kept here so they can never
-# silently recur without at least a loud failure.
 def _extract_docx_text(path: Path) -> str | None:
     try:
         import docx
@@ -73,8 +58,7 @@ def _extract_pdf_text(path: Path) -> str | None:
 
 def _read_material_text(materials_dir: Path, suffix: str) -> tuple[str | None, Path | None]:
     """suffix is ' - Resume' or ' - Cover Letter'. Prefers .docx (more
-    reliable text extraction) over .pdf if both exist; falls back to
-    whichever one is actually present."""
+    reliable extraction) over .pdf, falling back to whichever exists."""
     docx_files = list(materials_dir.glob(f"*{suffix}.docx"))
     pdf_files = list(materials_dir.glob(f"*{suffix}.pdf"))
     if docx_files:
@@ -85,17 +69,9 @@ def _read_material_text(materials_dir: Path, suffix: str) -> tuple[str | None, P
 
 
 def _check_no_angle_brackets(text: str, record, label: str) -> None:
-    """Backstop underneath the named-token KNOWN_BAD_PHRASES check --
-    that list is a fixed enumeration (<COMPANY_NAME>, <ROLE_NAME>,
-    etc.) and silently misses any placeholder token that isn't on it
-    yet (a new one added to a template, a typo'd variant, a renamed
-    one). Checked empirically before adding this: scanned every
-    paragraph of all 40 real generated .docx files (20 resumes + 20
-    cover letters) for a bare '<' or '>' -- zero legitimate occurrences
-    anywhere (no "<100ms"-style technical phrasing in this candidate's
-    actual writing), so a bare angle bracket is a safe, general signal
-    of a leaked template token, not just the specific ones already
-    named."""
+    """Backstop under the fixed-enumeration KNOWN_BAD_PHRASES check --
+    catches any placeholder token not on that list. A bare '<'/'>' had
+    zero legitimate occurrences across 40 real generated documents."""
     found = sorted(set(ch for ch in "<>" if ch in text))
     record(f"no unresolved '<'/'>' template syntax in the {label}", not found,
            f"found {', '.join(found)!r} in the assembled {label} -- almost certainly a "
@@ -103,16 +79,9 @@ def _check_no_angle_brackets(text: str, record, label: str) -> None:
 
 
 def _find_generated_pdf(materials_dir: Path, suffix: str) -> Path | None:
-    """suffix is ' - Resume' or ' - Cover Letter'. Deliberately
-    independent of _read_material_text()'s own docx-preferred lookup --
-    with --keep-docx defaulting on, a .docx and a .pdf normally sit side
-    by side in generated_materials/, and page COUNT is a property of
-    the rendered PDF specifically, not the docx. Real incident: the
-    page-count checks below used to reuse _read_material_text()'s
-    returned path, which is the .docx whenever one exists -- silently
-    skipping both checks on every app with --keep-docx on, with no
-    failure or skipped-check line printed, just two checks that quietly
-    never ran."""
+    """suffix is ' - Resume' or ' - Cover Letter'. Independent of
+    _read_material_text()'s docx-preferred lookup -- page count is a
+    PDF-only property; reusing that path used to silently skip both checks."""
     pdf_files = list(materials_dir.glob(f"*{suffix}.pdf"))
     return pdf_files[0] if pdf_files else None
 
@@ -121,18 +90,9 @@ _BLIP_TAG = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
 
 
 def check_signature_spacing(materials_dir: Path, record) -> None:
-    """Real incident: compress_docx_spacing() (the page-fit typography
-    compressor in src/core/docx_utils.py) rewrites line_spacing/
-    space_before/space_after on every paragraph in a cover letter,
-    including the signature image's own paragraph. A line_spacing
-    multiple below 1.0 shrinks that paragraph's line box below the
-    image's actual height, so the image visually overlaps the "Best,"
-    line above it -- confirmed on 13 of 20 real generated cover letters
-    (see src/util/py_fix_signature_overlap.py, the remediation script
-    for existing files). Checked directly against the .docx paragraph formatting --
-    a PDF's already-rendered layout can't be introspected this way, so
-    this is skipped silently if only a PDF survives (--no-keep-docx
-    already ran)."""
+    """compress_docx_spacing() can shrink the signature paragraph's line
+    box below the image's height, causing visual overlap with "Best,".
+    Checked against .docx formatting -- skipped if only a PDF survives."""
     cover_docx = list(materials_dir.glob("* - Cover Letter.docx"))
     if not cover_docx:
         return
@@ -154,25 +114,8 @@ def check_signature_spacing(materials_dir: Path, record) -> None:
 
 
 def check_ats_simulation(app_dir: Path, materials_dir: Path, record) -> None:
-    """Two things a real ATS is actually likely to get wrong or
-    filter on, simulated locally -- NOT a prediction of any specific
-    commercial ATS's real score, which is a proprietary black box
-    nobody outside that company can replicate. This tests the two
-    well-documented, vendor-agnostic failure modes instead:
-
-    1. Parsing fidelity -- most ATS use fairly primitive, non-layout-
-       aware PDF text extraction (similar to what pdfplumber does
-       here). Multi-column layouts get scrambled, text in tables/
-       headers/footers is often dropped, image-based content is
-       invisible. Tested by extracting the PDF the same primitive way
-       and checking basic parseability (name/email present, output
-       isn't garbled or empty).
-    2. Literal keyword coverage -- most ATS keyword search is lexical,
-       not semantic. A recruiter searching "Kubernetes" won't find you
-       if your resume only says "container orchestration." Tested
-       against the JD's own REQUIRED terms (from edit_brief.json,
-       already computed by stage 4), not invented independently.
-    """
+    """Simulates two vendor-agnostic ATS failure modes, not any specific
+    ATS's score: primitive PDF parsing, and literal keyword coverage."""
     resume_pdfs = list(materials_dir.glob("* - Resume.pdf"))
     if not resume_pdfs:
         return  # no PDF to simulate against -- docx-only, skip silently rather than fail
@@ -192,8 +135,7 @@ def check_ats_simulation(app_dir: Path, materials_dir: Path, record) -> None:
         return
     record("ATS-style PDF text extraction succeeds", True, f"{len(raw_text)} characters extracted")
 
-    # Garbled-output check -- a low alphabetic ratio usually means a
-    # font/encoding issue produced mangled characters, not real content.
+    # Low alphabetic ratio usually means a font/encoding issue mangled the text.
     alpha_count = sum(1 for c in raw_text if c.isalpha())
     alpha_ratio = alpha_count / max(1, len(raw_text))
     record("extracted text isn't garbled", alpha_ratio > 0.5,
@@ -220,12 +162,8 @@ def check_ats_simulation(app_dir: Path, materials_dir: Path, record) -> None:
             edit_brief = json.loads(edit_brief_path.read_text(encoding="utf-8"))
             keywords = extract_required_keywords(edit_brief)
             if keywords:
-                # Case-insensitive on purpose, matching classify_keyword_gaps'
-                # own convention (src/core/prose.py) -- a keyword extracted
-                # as "Backend" just because it started a JD sentence
-                # shouldn't register as missing when the resume genuinely
-                # says "...backend services...", and real ATS lexical search
-                # isn't case-sensitive either.
+                # Case-insensitive, matching classify_keyword_gaps' own
+                # convention -- real ATS lexical search isn't case-sensitive either.
                 raw_text_lower = raw_text.lower()
                 missing = [kw for kw in keywords if kw.lower() not in raw_text_lower]
                 coverage = 1 - (len(missing) / len(keywords))
@@ -261,12 +199,8 @@ def check_app(app_dir: Path, resume_max_pages: int, cover_letter_max_pages: int)
         except Exception:
             pass
 
-    # --- Claims ledger sanity (defense in depth -- schemas.py now enforces
-    # min_length=10 going forward, but this catches anything prepared
-    # before that fix landed). Real incident: a local-model run silently
-    # extracted only 5 claims from a full resume (should be 30-50+),
-    # and every downstream stage treated that impoverished ledger as
-    # complete. ---
+    # Defense in depth -- catches ledgers prepared before schemas.py
+    # enforced min_length=10 (a real run once silently extracted only 5 claims).
     routing_path = app_dir / "routing.json"
     if routing_path.is_file():
         try:
@@ -280,9 +214,8 @@ def check_app(app_dir: Path, resume_max_pages: int, cover_letter_max_pages: int)
         except Exception as e:
             record("claims ledger has enough content", False, f"couldn't check: {e}")
 
-    # --- coverage_score sanity (defense in depth, same reasoning as above).
-    # Real incident: a local model returned 60.0 meaning "60%" where a
-    # 0.60 fraction was expected, silently accepted, printed as "6000%". ---
+    # Defense in depth -- a real run once returned 60.0 meaning "60%"
+    # where a 0.60 fraction was expected, silently printed as "6000%".
     edit_brief_path = app_dir / "edit_brief.json"
     if edit_brief_path.is_file():
         try:
@@ -291,13 +224,8 @@ def check_app(app_dir: Path, resume_max_pages: int, cover_letter_max_pages: int)
         except Exception as e:
             record("coverage_score is a real 0-1 value", False, f"couldn't check: {e}")
 
-    # --- At least one edit actually made it through review -- checked
-    # PER DOCUMENT, not just in aggregate. Real incident: a run generated
-    # only cover-letter edits, zero resume edits, for two separate
-    # applications in a row -- an aggregate "at least one edit" check
-    # would have passed both, silently missing that the resume (the
-    # document most hiring processes and ATS systems actually scan
-    # first) went out completely untailored. ---
+    # Checked PER DOCUMENT, not aggregate -- a run once generated only
+    # cover-letter edits, zero resume edits, which an aggregate check would miss.
     decisions_path = app_dir / "review_decisions.json"
     edits_path = app_dir / "critiqued_edits.json"
     if not edits_path.is_file():
@@ -335,14 +263,8 @@ def check_app(app_dir: Path, resume_max_pages: int, cover_letter_max_pages: int)
     else:
         record("cover letter readable", True)
 
-        # Real incident: two consecutive bullets both centered on the
-        # same "$6.8M" figure -- one untouched baseline, one a reworded
-        # edit that independently drifted back onto the same metric
-        # instead of the different fact its own bullet was supposed to
-        # be about. Cheap, deterministic, catches this class of
-        # redundancy regardless of whether stage 5's own self-check
-        # (comparing proposed edits against EACH OTHER, not against
-        # untouched baseline bullets sitting nearby) catches it.
+        # A real run once had two bullets independently centered on the
+        # same dollar figure -- this catches that regardless of stage 5's own self-check.
         dollar_figures = re.findall(r"\$[\d,.]+\s?[MmBbKk]?(?:illion)?", cover_text)
         seen_figures = {}
         for fig in dollar_figures:
@@ -362,40 +284,21 @@ def check_app(app_dir: Path, resume_max_pages: int, cover_letter_max_pages: int)
         _check_no_angle_brackets(cover_text, record, "cover letter")
 
         if company:
-            # Re:/salutation lines trivially contain the company name --
-            # real incident was the mandatory "What draws me to X..."
-            # paragraph staying completely generic (Stripe-era boilerplate)
-            # while Re:/salutation still correctly showed the real company.
-            # Requiring 3+ mentions is a cheap proxy for "the free-written
-            # paragraph actually engaged with the company," not proof of it.
+            # Re:/salutation trivially contain the company name -- 3+
+            # mentions is a cheap proxy that the free-written paragraph actually engaged.
             mentions = cover_text.count(company)
             record(f"company name ({company!r}) appears beyond just Re:/salutation",
                    mentions >= 3, f"found {mentions} mention(s), want >= 3")
 
-        # Real incident: the mandatory company-paragraph rewrite silently
-        # not firing, leaving the exact Stripe-era boilerplate in place.
+        # Catches the mandatory company-paragraph rewrite silently not firing.
         generic_tell = "keeps pushing on developer experience by accelerating and streamlining"
         record("mandatory company paragraph was actually rewritten",
                generic_tell not in cover_text,
                "found the generic template phrasing verbatim -- the company-specific "
                "rewrite did not happen" if generic_tell in cover_text else "")
 
-        # Real incident: the baseline's 2nd body paragraph ("I've spent
-        # my entire career at Capital One reimagining...") restated the
-        # opening sentence's "modernizing financial infrastructure at
-        # Capital One" claim, then closed with a vague "integrating new
-        # API endpoints...enterprise customer servicing platform" line
-        # that duplicated ground the bullets below already cover more
-        # concretely -- present, unedited, in 18 of 20 real generated
-        # cover letters. Trimmed out of config/cover_letter_sample/
-        # dylan_brown_cover_letter_new.txt (the only sentence in that
-        # paragraph carrying real, non-redundant information -- the
-        # Python/Node/Java/Angular stack line -- was kept). This flags
-        # the OLD redundant phrasing specifically, the same pattern as
-        # the mandatory-paragraph check above, not a general redundancy
-        # detector -- if it fires, the baseline fix didn't make it into
-        # this particular letter (an app generated before the fix, or a
-        # future baseline edit reintroducing it).
+        # Flags the OLD redundant 2nd-paragraph phrasing specifically
+        # (trimmed from the baseline sample) -- firing means this letter predates that fix.
         redundant_tell = "reimagining fragmented legacy financial applications"
         record("2nd body paragraph doesn't restate the opening/bullets",
                redundant_tell not in cover_text,
@@ -471,11 +374,8 @@ def run(app_id: str | None, all_apps: bool, resume_max_pages: int, cover_letter_
 
     any_failed = False
     for app_dir in targets:
-        # keywords_only doesn't skip any checks -- check_app() is fast/
-        # deterministic and its full result still gets written to
-        # definition_of_done_report.json below either way. It's purely a
-        # display filter, for reading/manually editing a .docx without
-        # the rest of the checks scrolling the keyword miss list off screen.
+        # keywords_only is a display filter only -- every check still runs
+        # and the full result still gets written to definition_of_done_report.json.
         result = check_app(app_dir, resume_max_pages, cover_letter_max_pages)
         status = "PASS" if result["all_passed"] else "FAIL"
         # Header is green either on a true all-clear, or when the ONLY

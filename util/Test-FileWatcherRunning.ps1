@@ -29,5 +29,5 @@ try {
 } catch {
     Write-Warning "Server not reachable at http://127.0.0.1:8765/health."
     Write-Warning "Even if the Task above shows 'Running', the watcher process itself is not responding -"
-    Write-Warning "check jobs\logs\file_watcher.json for what happened after launch."
+    Write-Warning "check jobs\log\file_watcher.json for what happened after launch."
 }

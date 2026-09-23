@@ -10,9 +10,11 @@ pipeline flow. None of these run automatically as part of `run_pipeline.py`.
   count, weekly applied/cut-off/revisit breakdown, resume-variant split,
   file-watcher run timings. See `python src/util/py_applications_stats.py --all`.
 * **`py_applications_archive_cleanup.py`** — Reclaims disk space by deleting
-  intermediate JSON artifacts from `applications/archived/`, keeping the
-  final generated materials, the original job posting, and your review
-  decisions.
+  intermediate JSON artifacts from `applications/archive/{applied,test,done}/`
+  by default, keeping the final generated materials, the original job
+  posting, and your review decisions. Skips `cut_off`/`revisit` by
+  default -- those are the two outcomes you might still want the full
+  intermediate context for.
 * **`py_zip_materials.py`** — Bundles every generated resume/cover letter
   across the live `applications/` queue into one ZIP for review or sharing.
 * **`py_export_jd_input_schema.py`** — Regenerates `contracts/jd_input.schema.json`

@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
 
-LOG_DIR = Path(os.environ.get("PIPELINE_LOG_DIR", "./logs"))
+LOG_DIR = Path(os.environ.get("PIPELINE_LOG_DIR", "./log"))
 
 
 def log_event(stage_name: str, event: dict) -> None:

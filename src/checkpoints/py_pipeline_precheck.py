@@ -222,7 +222,7 @@ def check_resume_template(path: str):
 
 
 def check_writable_dirs(root: Path):
-    for dirname in ("applications", "logs"):
+    for dirname in ("applications", "log"):
         d = root / dirname
         try:
             d.mkdir(parents=True, exist_ok=True)

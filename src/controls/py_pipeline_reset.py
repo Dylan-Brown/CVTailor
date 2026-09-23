@@ -57,8 +57,8 @@ def run(jd: str | None, all_: bool, keep_artifacts: bool):
     else:
         app_dir = APPLICATIONS_ROOT / jd
         if not app_dir.is_dir() or app_dir.name in NON_APPLICATION_DIR_NAMES:
-            print(f"No live applications/{jd}/ folder found (or it's archived — "
-                  f"requeue never touches applications/archived/).", file=sys.stderr)
+            print(f"No live applications/{jd}/ folder found (or it's already archived — "
+                  f"requeue never touches applications/archive/).", file=sys.stderr)
             sys.exit(1)
         targets = [app_dir]
 

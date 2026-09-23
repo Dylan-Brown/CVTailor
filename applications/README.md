@@ -16,15 +16,22 @@ Holds extracted data for your base materials, organized by resume variant:
 * **`.source_hashes.json`**: Tracks base document state to trigger re-extraction when resumes change.
 
 ### 3. The Archive (`/archive/`)
-Processed applications are moved here by `py_post_pipeline_store_applied.py`:
-* **`/applied`**: Successfully submitted applications.
+Processed applications are moved here by `py_post_pipeline_store_applied.py`
+-- one app at a time by prefix, or every live app at once via `--all`
+(warns and requires typing `yes` before touching anything):
+* **`/applied`**: Successfully submitted applications (default outcome; adds
+  a row to your configured Application Progress.md, if any).
 * **`/cut_off`**: Abandoned or filtered-out opportunities (each gets a `cutoff_explanation.txt`).
 * **`/revisit`**: Applications queued for manual attention or later follow-up.
 * **`/test`**: Sandbox for testing pipeline prompts or local models.
+* **`/done`**: Fully finished, nothing further to record -- no outcome
+  category, no Application Progress.md row. This absorbed what used to
+  be a separate `/archived/` folder and `py_pipeline_store_archive.py`
+  script; the two were doing the same "move a finished application
+  folder" operation with less nuance, so they were merged in.
 * **`apps_moved.log`**: Timestamped move history, used by `py_applications_stats.py --archive` for weekly velocity.
 * **`definition_of_done_report.json`**: Written by `py_post_pipeline_verify_materials.py`.
 
-### 4. `/archived/` (note: distinct from `/archive/` above)
-Where `py_pipeline_store_archive.py` moves a fully-done application as one
-packed-up folder (jd folder + its `generated_materials/`). Permanent --
-never touched by `py_pipeline_reset.py`.
+All five outcome folders are equally permanent -- never touched by
+`py_pipeline_reset.py` or `run_pipeline.py` once an application lands
+in one of them.

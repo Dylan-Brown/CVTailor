@@ -20,7 +20,7 @@ KEEP_EXACT = {
 }
 KEEP_DIRS = {"generated_materials"}
 
-DEFAULT_SUBFOLDERS = ["applied", "test"]
+DEFAULT_SUBFOLDERS = ["applied", "test", "done"]
 
 
 def _human_size(n: int) -> str:
