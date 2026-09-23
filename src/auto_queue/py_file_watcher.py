@@ -24,11 +24,8 @@ from flask import Flask, jsonify
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-# ---------------------------------------------------------------------------
-# Path resolution: script lives at jobs/src/auto_queue/, config lives at
-# jobs/config/file_watcher.json — two different directories, so config path
-# is located explicitly rather than assumed to sit next to this script.
-# ---------------------------------------------------------------------------
+# Config lives at jobs/config/file_watcher.json, a different directory
+# than this script, so its path is located explicitly.
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 JOBS_ROOT = SCRIPT_DIR.parent.parent  # auto_queue -> src -> jobs
@@ -36,15 +33,9 @@ CONFIG_PATH = JOBS_ROOT / "config" / "file_watcher.json"
 
 
 def resolve_path(value: str, base_dir: Path) -> Path:
-    """Absolute paths (C:/..., \\\\server\\share, /posix/abs) pass through
-    unchanged. Anything else resolves relative to base_dir — for this
-    script, base_dir is always the config file's own directory.
-
-    Uses PureWindowsPath for the absoluteness check specifically so this
-    is correct when developed/tested on non-Windows hosts too: POSIX's
-    Path.is_absolute() doesn't recognize 'C:/...' as absolute, which would
-    otherwise wrongly treat every Windows path in config as relative
-    during any non-Windows test run."""
+    """Absolute paths pass through unchanged; anything else resolves
+    relative to base_dir. Uses PureWindowsPath for the absoluteness
+    check so 'C:/...' is still recognized as absolute on non-Windows hosts."""
     from pathlib import PureWindowsPath
     if PureWindowsPath(value).is_absolute():
         return Path(value)
@@ -70,6 +61,11 @@ INTAKE_CFG = CONFIG.get("intake")
 if INTAKE_CFG:
     INTAKE_WATCH_DIR = resolve_path(INTAKE_CFG["watch_dir"], CONFIG_DIR)
     INTAKE_ACTION = INTAKE_CFG.get("action", "save_job_details")
+
+CHROME_CFG = CONFIG.get("chrome")
+if CHROME_CFG and CHROME_CFG.get("enabled", True):
+    CHROME_PROFILE_DIRECTORY = CHROME_CFG.get("profile_directory", "Default")
+    CHROME_EXE_CANDIDATES = [Path(os.path.expandvars(p)) for p in CHROME_CFG.get("exe_candidates", [])]
 
 APPLICATIONS_CFG = CONFIG.get("applications")
 if APPLICATIONS_CFG:
@@ -97,11 +93,8 @@ if LM_STUDIO_CFG and LM_STUDIO_CFG.get("enabled", True):
     LMSTUDIO_MODEL_LOAD_TIMEOUT = int(LM_STUDIO_CFG.get("model_load_timeout_seconds", 600))
     LMSTUDIO_POLL_INTERVAL = int(LM_STUDIO_CFG.get("poll_interval_seconds", 2))
 
-    # ensure_lm_studio_ready.py lives right next to this script (both under
-    # src/auto_queue/) -- explicit sys.path insert rather than relying on
-    # Python's own "script's directory is on sys.path[0]" default, since
-    # that default only holds when this file is run as __main__, not if
-    # it's ever imported instead.
+    # Explicit sys.path insert since ensure_lm_studio_ready.py's sibling
+    # location only lands on sys.path[0] automatically when run as __main__.
     if str(SCRIPT_DIR) not in sys.path:
         sys.path.insert(0, str(SCRIPT_DIR))
     try:
@@ -109,11 +102,7 @@ if LM_STUDIO_CFG and LM_STUDIO_CFG.get("enabled", True):
     except ImportError:
         ensure_lm_studio_ready = None  # logged at first use, once logger exists
 
-# ---------------------------------------------------------------------------
-# Logging: JSON Lines (one JSON object per line) since the log file itself
-# is named file_watcher.json — makes it trivial to pull into Notion, jq,
-# or any of the other JSON-native tooling already in use.
-# ---------------------------------------------------------------------------
+# Logging: JSON Lines, one JSON object per line, for easy jq/Notion ingestion.
 
 
 class JsonLineFormatter(logging.Formatter):
@@ -299,19 +288,9 @@ def record_export(application_id: str, filename: str, mtime: float):
         )
 
 
-# ---------------------------------------------------------------------------
 # Timing metrics: A = intake trigger enqueued -> jd_input.json landing.
-# B = jd_input.json landing -> last materials export.
-#
-# A is read directly out of jd_input.json's own content rather than
-# guessed via URL matching: the extension already receives each trigger's
-# `created_at` (and `id`) when it polls /poll, so it just needs to carry
-# those two values forward into the jd_input.json it writes. See
-# extension_background_snippet.js and metrics.intake_timestamp_field /
-# metrics.intake_trigger_id_field in config. If those fields are absent
-# (a manual run with no intake trigger involved), metric A is simply not
-# recorded for that application — correct behavior, not an error.
-# ---------------------------------------------------------------------------
+# B = jd_input.json landing -> last materials export. Read from
+# jd_input.json's own fields (metrics.intake_timestamp_field/_trigger_id_field).
 
 
 def extract_intake_metrics_fields(
@@ -395,13 +374,8 @@ def record_materials_landed(application_id: str, exported_at: datetime):
         )
 
 
-# ---------------------------------------------------------------------------
-# URL extraction (intake). Deliberately format-agnostic — plain lines,
-# comma-separated, markdown headers/bullets/links, all fine. The one thing
-# that needs explicit handling is trailing markdown emphasis wrapping a URL
-# (iPhone Notes especially: **bold**, _italic_, `code`), since those
-# characters land right after the URL and aren't punctuation.
-# ---------------------------------------------------------------------------
+# URL extraction (intake). Format-agnostic; also strips trailing markdown
+# emphasis wrapping a URL (iPhone Notes: **bold**, _italic_, `code`).
 
 URL_RE = re.compile(r"https?://[^\s'\"<>\)\]]+")
 
@@ -425,6 +399,49 @@ def wait_for_stable_file(path: Path) -> bool:
         last_size = size
         time.sleep(DEBOUNCE_SECONDS)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Chrome auto-launch: the extension can only poll for triggers while Chrome
+# is actually running, and nothing used to start it for you.
+# ---------------------------------------------------------------------------
+
+_chrome_launch_lock = threading.Lock()
+
+
+def is_chrome_running() -> bool:
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq chrome.exe", "/NH"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return "chrome.exe" in result.stdout.lower()
+    except Exception as e:
+        logger.warning("Could not check for a running chrome.exe: %s", e)
+        return True  # assume running rather than risk spawning a duplicate
+
+
+def ensure_chrome_running():
+    if not (CHROME_CFG and CHROME_CFG.get("enabled", True)):
+        return
+    with _chrome_launch_lock:
+        if is_chrome_running():
+            return
+        exe = next((p for p in CHROME_EXE_CANDIDATES if p.exists()), None)
+        if exe is None:
+            logger.error("Chrome auto-launch enabled but no chrome.exe found in configured exe_candidates.")
+            return
+        try:
+            # --profile-directory skips the profile picker Chrome otherwise
+            # shows on a cold launch with multiple profiles configured.
+            subprocess.Popen(
+                [str(exe), f"--profile-directory={CHROME_PROFILE_DIRECTORY}"],
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                close_fds=True,
+            )
+            logger.info("Launched Chrome (profile-directory=%s) — was not running.", CHROME_PROFILE_DIRECTORY)
+        except Exception as e:
+            logger.error("Failed to launch Chrome: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +478,8 @@ class IntakeHandler(FileSystemEventHandler):
             trigger_id = enqueue_trigger(self.action, url, {}, str(path))
             logger.info("Enqueued intake trigger #%d action=%s url=%s", trigger_id, self.action, url)
 
+        ensure_chrome_running()
+
         dest = self.move_to / path.name
         try:
             path.rename(dest)
@@ -477,10 +496,8 @@ _lm_studio_lock = threading.Lock()  # serialize warm-up across concurrent pipeli
 
 
 class ApplicationIntakeHandler(FileSystemEventHandler):
-    """Watches applications_root recursively. When <app_id>/jd_input.json
-    appears at any depth — from the extension via intake, or run by hand —
-    claims the run (DB UNIQUE constraint dedupes, persists across restarts)
-    and enqueues it for a worker thread."""
+    """Watches applications_root recursively; when <app_id>/jd_input.json
+    appears, claims the run (DB UNIQUE constraint dedupes) and enqueues it."""
 
     def on_created(self, event):
         if event.is_directory:
@@ -537,10 +554,8 @@ def _run_pipeline(application_id: str, job_dir: Path):
                 "from %s — proceeding without a warm-up check.", JOBS_ROOT / "src" / "core",
             )
         else:
-            # Locked: with max_concurrent_runs > 1, several worker threads could
-            # hit a cold LM Studio at once. Only the first should actually drive
-            # the launch/load sequence; the rest will find it already warm by
-            # the time they get the lock (the function's own fast-path check).
+            # Locked so with max_concurrent_runs > 1 only the first worker
+            # drives the launch/load sequence; the rest find it already warm.
             with _lm_studio_lock:
                 logger.info("Ensuring LM Studio is serving %s before starting pipeline for %s...",
                             LMSTUDIO_MODEL_ID, application_id)
@@ -566,7 +581,7 @@ def _run_pipeline(application_id: str, job_dir: Path):
         env["LMSTUDIO_MODEL"] = LMSTUDIO_MODEL_ID  # loading the model doesn't make the pipeline use it
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_file = JOBS_ROOT / "logs" / f"pipeline_{application_id}_{timestamp}.log"
+    log_file = JOBS_ROOT / "log" / f"pipeline_{application_id}_{timestamp}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     mark_run_started(application_id, str(log_file))
 
@@ -585,10 +600,8 @@ def start_pipeline_workers():
     logger.info("Started %d pipeline worker thread(s)", MAX_CONCURRENT_RUNS)
 
 
-# ---------------------------------------------------------------------------
-# Materials export: fully decoupled from how the run started — reacts only
-# to files appearing under generated_materials/.
-# ---------------------------------------------------------------------------
+# Materials export: decoupled from how the run started, reacts only to
+# files appearing under generated_materials/.
 
 
 class MaterialsExportHandler(FileSystemEventHandler):

@@ -1,20 +1,8 @@
 #!/usr/bin/env python3
 """
-run_pipeline.py
-===============
-The primary entrypoint for executing the CVTailor pipeline.
-
-Modes:
-  1. BATCH MODE (Default): Processes all pending applications in the `applications/` 
-     directory through Stages 0-7. Stops before Stage 8 (manual review) unless 
-     the `--full` flag is provided (which runs end-to-end using the configured AI Agent).
-  2. SINGLE-JD MODE (`--jd-json`): Intakes a brand new job description from a file path 
-     and runs it through Stages 0-7 in one shot.
-
-Usage:
-    python run_pipeline.py [--app <id_or_prefix>] [--force] [--dry-run] [--provider claude]
-    python run_pipeline.py --full
-    python run_pipeline.py --jd-json path/to/jd.json --resume path/to/resume.pdf ...
+run_pipeline.py -- the primary entrypoint for the CVTailor pipeline.
+BATCH MODE (default): runs Stages 0-7 on all pending applications/,
+stopping before Stage 8 unless --full. --jd-json switches to single-JD mode.
 """
 from __future__ import annotations
 import argparse
@@ -39,11 +27,9 @@ PIPELINE_YAML = JOBS_ROOT / "pipeline.yaml"
 
 
 def _stage1_enabled() -> bool:
-    """Reads pipeline.yaml's run_stage1_scoring (Yes/No, default No) --
-    same minimal line-scan py_stage08_reviewer_interface.py already uses
-    for its own pipeline.yaml keys; not worth a YAML dependency for one
-    more setting. Stage 1 stays runnable by hand regardless of this --
-    it only gates whether run_single_jd() launches it automatically."""
+    """Reads pipeline.yaml's run_stage1_scoring (Yes/No, default No).
+    Only gates whether run_single_jd() launches stage 1 automatically --
+    it stays runnable by hand regardless."""
     if not PIPELINE_YAML.is_file():
         return False
     for line in PIPELINE_YAML.read_text(encoding="utf-8").splitlines():
@@ -56,27 +42,9 @@ APPLICATIONS_STATS_SCRIPT = JOBS_ROOT / "src" / "util" / "py_applications_stats.
 
 
 def drain_raw_intake() -> list[str]:
-    """Finds every raw (not-yet-validated) JD JSON sitting under
-    applications/ and runs stage 0 on it, turning it into a real,
-    canonical jd_input.json. Two cases:
-
-    1. A stray *.json sitting directly at applications/ root (not in
-       any subfolder) -- gets a fresh applications/<name>/ subfolder
-       created for it (name derived from the file), stage 0 runs with
-       that as --app-id, then the root-level file is deleted.
-    2. An existing applications/<name>/ subfolder that has some *.json
-       file but no jd_input.json yet (you pre-made the folder and
-       dropped a raw export inside it) -- stage 0 runs in place using
-       the folder's own name as --app-id, then the raw file is
-       deleted. Ambiguous cases (2+ json files, no jd_input.json yet)
-       are skipped with a warning rather than guessed at.
-
-    Either way the raw file's content lives on as that folder's
-    jd_input.json, so nothing is lost by deleting the raw copy.
-    Returns the list of app_ids created/updated. A JD failing stage 0
-    (malformed JSON, fails the JDInput contract) is left in place
-    rather than deleted, so you don't lose track of it.
-    """
+    """Finds every raw JD JSON under applications/ (at root, or in a
+    folder with no jd_input.json yet) and runs stage 0 on it, deleting
+    the raw file. A JD failing stage 0, or an ambiguous folder, is left in place."""
     if not APPLICATIONS_ROOT.is_dir():
         return []
     drained = []
@@ -125,10 +93,8 @@ def drain_raw_intake() -> list[str]:
 
 def _is_really_verified(app_dir: Path) -> bool:
     """True only if verified_edits.json exists AND wasn't written by a
-    --dry-run pass. Dry-run deliberately writes real placeholder files
-    to this exact path so downstream stages can smoke-test wiring
-    without spending anything -- a plain existence check can't tell
-    "really prepared" apart from "someone ran --dry-run first"."""
+    --dry-run pass -- a plain existence check can't tell "really
+    prepared" apart from "someone ran --dry-run first"."""
     p = app_dir / "verified_edits.json"
     if not p.is_file():
         return False
@@ -139,10 +105,8 @@ def _is_really_verified(app_dir: Path) -> bool:
 
 
 def _resolve_app_filter(app_filter: str | None) -> list[Path]:
-    """Resolves --app to a single application dir by exact match, then
-    case-insensitive prefix (same convention every other pipeline
-    script uses for --app-id). Returns every pending app dir if
-    app_filter is None."""
+    """Resolves --app by exact match then case-insensitive prefix.
+    Returns every pending app dir if app_filter is None."""
     if app_filter is None:
         return app_dirs()
     exact = APPLICATIONS_ROOT / app_filter
@@ -161,26 +125,9 @@ def _resolve_app_filter(app_filter: str | None) -> list[Path]:
 
 
 def run_full_chain(app_filter: str | None) -> None:
-    """--full: continues past stage 7 into review (stage 8, via the
-    dispatcher so pipeline.yaml's Review Stage Assignee decides human
-    vs. Agent), assembly (stage 9), opening every live app's source_url
-    in Chrome, and a final applications-stats checkpoint -- the rest of
-    what a fully-automated Agent review setup no longer needs a human
-    to trigger by hand.
-
-    Each step runs via sh_optional() rather than sh() -- same
-    philosophy as "one JD failing during prepare doesn't stop the
-    batch": a review-step hiccup (e.g. a missing GEMINI_API_KEY)
-    shouldn't prevent assemble from at least processing whatever DID
-    get reviewed, assemble failing shouldn't prevent opening tabs for
-    whatever's already live, and none of the above should prevent the
-    stats checkpoint from at least reporting whatever state actually
-    resulted. Assembly, opening URLs, and the stats checkpoint are all
-    already unscoped by design (assemble processes every JD with
-    review_decisions.json; open_app_urls opens every live app's
-    source_url; py_applications_stats.py --all reports across all of
-    applications/) -- only the review step itself understands
-    --app-id, so only it gets `app_filter` forwarded."""
+    """--full: continues past stage 7 into review, assembly, opening
+    every live app's source_url, and a final stats checkpoint. Each
+    step runs via sh_optional() so a hiccup in one doesn't block the rest."""
     print("\n=== Stage 8: review ===")
     review_cmd = [sys.executable, str(STAGE8_DISPATCHER)]
     if app_filter:
@@ -218,14 +165,9 @@ def run_batch(app_filter: str | None, force: bool, dry_run: bool, provider: str,
               "verified/reviewed/assembled, or has no jd_input.json yet. Drop a raw JD "
               "JSON straight into applications/ (or capture one via the Chrome extension), "
               "then re-run.")
-        # "Nothing pending" only means stages 0-7 have nothing left to
-        # prepare -- it says nothing about stage 8. An app fully
-        # verified in an earlier run (or one whose review got cut off
-        # partway through last time) is exactly the case --full exists
-        # for: still returning here unconditionally would silently skip
-        # review/assemble/open-urls/stats every time prepare alone has
-        # nothing new to do, which defeats the entire point of --full
-        # after a resumed or partial review session.
+        # "Nothing pending" only covers stages 0-7 -- an app already
+        # verified (or mid-review from last time) still needs --full to
+        # continue into review/assemble/open-urls/stats.
         if full and not dry_run:
             run_full_chain(app_filter)
         return
@@ -300,11 +242,9 @@ def run_batch(app_filter: str | None, force: bool, dry_run: bool, provider: str,
 
 
 def run_single_jd(args) -> None:
-    """Intake-and-prepare a brand new JD not yet in applications/,
-    through stages 0-7 (1 is optional, run right after 0 if
-    --resume-text was given AND pipeline.yaml's run_stage1_scoring is
-    Yes). Stops at 7 -- stage 8 (review) is interactive and stage 9
-    (assembly) is its own checkpoint, same reasoning as batch mode."""
+    """Intake-and-prepare a brand new JD through stages 0-7 (1 is
+    optional, gated on --resume-text and pipeline.yaml's
+    run_stage1_scoring). Stops at 7, same as batch mode."""
     dry = ["--dry-run"] if args.dry_run else []
     prov = ["--provider", args.provider]
 

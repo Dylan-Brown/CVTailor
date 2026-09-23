@@ -44,7 +44,7 @@ $TriggerBoot  = New-ScheduledTaskTrigger -AtStartup
 $TriggerLogon = New-ScheduledTaskTrigger -AtLogOn
 
 $Settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBattery `
+    -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
     -RestartCount 3 `
@@ -68,6 +68,6 @@ Start-ScheduledTask -TaskName $TaskName
 Start-Sleep -Seconds 2
 Get-ScheduledTaskInfo -TaskName $TaskName | Format-List LastRunTime, LastTaskResult, NextRunTime
 
-$LogPath = Join-Path $JobsRoot "logs\file_watcher.json"
+$LogPath = Join-Path $JobsRoot "log\file_watcher.json"
 Write-Host "`nCheck $LogPath for output."
 Write-Host "Verify it's alive: curl http://127.0.0.1:8765/health"

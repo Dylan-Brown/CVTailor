@@ -16,7 +16,7 @@ run_stage1_scoring: No
 # Run checkpoint validations automatically during batch processing (Yes, StageX Only, or No).
 always_run_pipeline_checks: Yes
 
-# Filepath to mirror console output to. 'None' relies on logs/*.jsonl only.
+# Filepath to mirror console output to. 'None' relies on log/*.jsonl only.
 pipeline_log_path: None
 
 # Default browser for opening application URLs (only Chrome has an extension).
@@ -31,4 +31,4 @@ credentials:
 # Optional: absolute path to an Obsidian note with a "Job Applications"
 # table. If set, py_post_pipeline_store_applied.py --applied inserts a
 # new row at the top of that table. Leave as None to skip this entirely.
-application_progress_md_path: None
+application_progress_md_path: "C:\Users\Thesis\Proton Drive\dylbr\My files\Obsidian\Employment\Career\Application Progress.md"

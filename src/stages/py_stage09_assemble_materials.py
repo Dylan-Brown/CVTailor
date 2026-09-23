@@ -1,22 +1,8 @@
 #!/usr/bin/env python3
 """
-py_stage09_assemble_materials.py — Stage 9: Document Assembly
-=============================================================
-Applies approved edits to your resume `.docx` template using formatting-preserving, 
-table-aware text replacement. Generates the final cover letter and converts both to PDF.
-
-Includes an interactive review loop for the cover letter:
-    (a)ccept   — Build the document as-is.
-    (m)anual   — Open the text in Notepad for manual tweaking.
-    (f)eedback — Send a note to the LLM to rewrite the letter based on your critique.
-
-Usage:
-    python py_stage09_assemble_materials.py \
-        --resume-template path/to/template.docx \
-        --review-decisions path/to/decisions.json \
-        --verified-edits path/to/verified.json \
-        --out-dir path/to/output/ \
-        --company "Acme" --role-title "Cloud Architect" --applicant-name "Dylan Brown"
+py_stage09_assemble_materials.py -- Stage 9: applies approved edits to
+the resume .docx (formatting-preserving) and builds the cover letter,
+then converts both to PDF. Includes an interactive review loop for the letter.
 """
 import argparse
 import json
@@ -89,10 +75,7 @@ def apply_edits_to_docx(template_path: str, edits_by_id: dict, out_path: str, dr
 
 
 def _build_contact_line(email, phone, linkedin, github) -> str:
-    # Pre-existing bug: this used to join linkedin/github directly without
-    # filtering None -- crashed with a TypeError the moment either flag
-    # was omitted (str.join requires every item to be a string). Filter
-    # falsy values at every step instead.
+    # Filters falsy values at every step -- str.join crashes if any item isn't a string.
     email_phone = " • ".join(x for x in [email, phone] if x)
     parts = [p for p in [email_phone, linkedin, github] if p]
     return "\n".join(parts)
@@ -121,10 +104,8 @@ def _expand_placeholder_paragraph(placeholder_para, lines: list[str], double_las
 
     src_run = placeholder_para.runs[0] if placeholder_para.runs else None
     base_space_after = placeholder_para.paragraph_format.space_after
-    # Copy paragraph-level formatting from the placeholder so inserted
-    # text matches the template's margins, indentation, and alignment,
-    # not just the style definition's defaults (which can differ from
-    # the placeholder's own overrides).
+    # Copies the placeholder's own paragraph formatting (margins/indent/
+    # alignment), not just the style's defaults, which can differ.
     src_fmt = placeholder_para.paragraph_format
     inserted = []
     for text in lines:
@@ -145,13 +126,8 @@ def _expand_placeholder_paragraph(placeholder_para, lines: list[str], double_las
             new_p.alignment = src_fmt.alignment
 
         if is_bullet:
-            # Real hanging indent, not a literal bullet character sitting
-            # flush against a wrapped second line with no alignment.
-            # HANGING_INDENT = 18pt from the paragraph's own left margin;
-            # a matching tab stop at that same offset means the tab
-            # between the bullet glyph and the text lands exactly at the
-            # hang point, so wrapped continuation lines land under the
-            # text, not under the bullet.
+            # Real hanging indent (18pt) with a matching tab stop, so
+            # wrapped continuation lines land under the text, not the bullet.
             base_left = src_fmt.left_indent or Pt(0)
             hang = Pt(18)
             new_p.paragraph_format.left_indent = base_left + hang
@@ -177,15 +153,8 @@ def _expand_placeholder_paragraph(placeholder_para, lines: list[str], double_las
     if inserted and double_last_gap and base_space_after is not None:
         inserted[-1].paragraph_format.space_after = Pt(base_space_after.pt * 2)
 
-    # For a block of lines that used to be ONE paragraph (e.g. a multi-
-    # line address, or an address+contact-line block sharing a single
-    # {{ADDRESS}}\n{{CONTACT_LINE}} placeholder) -- that original
-    # paragraph's space_after was meant to apply once, after the whole
-    # block, not after every individual line within it. Applying it to
-    # every inserted line (the default above) visibly double/triple-
-    # spaces what should read as one tight block. Zero out every line
-    # except the last, which keeps the original spacing so the block as
-    # a whole is still visually separated from whatever follows it.
+    # A block that used to be ONE paragraph (e.g. address+contact-line)
+    # should only get space_after once, after the whole block, not per line.
     if inserted and tight_except_last:
         for p in inserted[:-1]:
             p.paragraph_format.space_after = Pt(0)
@@ -197,9 +166,7 @@ def _expand_placeholder_paragraph(placeholder_para, lines: list[str], double_las
 
 def _build_address_lines(address_line_1, address_line_2, city, state, zipcode) -> list[str]:
     lines = []
-    # Join address lines 1 and 2 on a single line, comma-separated,
-    # rather than stacking them — reads better when line 2 is short
-    # (e.g. "4934 Locust Street, Unit 4" instead of two separate lines).
+    # Comma-joined on one line rather than stacked -- reads better when line 2 is short.
     addr_parts = [p for p in [address_line_1, address_line_2] if p]
     if addr_parts:
         lines.append(", ".join(addr_parts))
@@ -243,9 +210,7 @@ def _build_cover_letter_from_template(
         "{{COMPANY}}": company,
     }
 
-    # Date formatting — the template may use {{DATE}} or the more
-    # descriptive {{DATE (formatted like: August 8th, 2026)}} form.
-    # Handle both by checking paragraph text for either pattern.
+    # Handles both {{DATE}} and the descriptive {{DATE (formatted like: ...)}} form.
     import datetime
     now = datetime.datetime.now()
     day = now.day
@@ -261,9 +226,7 @@ def _build_cover_letter_from_template(
     else:
         greeting = "Good Evening"
 
-    # Resolve the {{Backend | Fullstack}} variant placeholder in the
-    # template header. Maps to "Backend" or "Full-Stack" based on the
-    # resume variant that was routed for this application.
+    # Maps the {{Backend | Fullstack}} header placeholder to the routed variant.
     variant_display = "Full-Stack" if resume_variant == "Full Stack" else (resume_variant or "Backend")
     for para in iter_all_paragraphs(doc):
         if "{{Backend | Fullstack}}" in para.text or "{{Backend | Full-Stack}}" in para.text:
@@ -279,11 +242,8 @@ def _build_cover_letter_from_template(
             body_placeholder = para
             continue
 
-        # Date placeholder — may be {{DATE}} or the descriptive
-        # {{DATE (formatted like: ...)}} form. Replace the entire
-        # paragraph text rather than substring-matching, since the
-        # descriptive form has parentheses that make partial replacement
-        # fragile across runs.
+        # Replaces the whole paragraph, not a substring -- the descriptive
+        # form's parentheses make partial replacement fragile across runs.
         if "{{DATE" in para.text:
             for r in para.runs:
                 r.text = ""
@@ -291,8 +251,7 @@ def _build_cover_letter_from_template(
                 para.runs[0].text = formatted_date
             continue
 
-        # Salutation placeholder — {{Good (Morning | Afternoon | Evening)}}
-        # followed by company/addressee. Replace the whole paragraph.
+        # {{Good (Morning | Afternoon | Evening)}} salutation -- whole paragraph replaced.
         if "{{Good" in para.text or "Good (Morning" in para.text:
             for r in para.runs:
                 r.text = ""
@@ -300,10 +259,8 @@ def _build_cover_letter_from_template(
                 para.runs[0].text = f"{greeting} {company} Recruiting Team,"
             continue
 
-        # Address/contact — the new template has these hardcoded (with
-        # hyperlinks in an invisible table), so {{ADDRESS}} and
-        # {{CONTACT_LINE}} may not be present. Still check for them to
-        # support older templates cleanly.
+        # Newer templates hardcode address/contact (hyperlinks in an
+        # invisible table) -- still checked here for older templates.
         matched_placeholder = False
         if "{{ADDRESS}}" in para.text:
             address_placeholder = para
@@ -317,26 +274,16 @@ def _build_cover_letter_from_template(
             docx_replace_text(para, placeholder, value)
 
     if address_placeholder is not None:
-        # Real templates commonly put {{ADDRESS}}\n{{CONTACT_LINE}} in ONE
-        # paragraph (a line break, not a paragraph break) -- if so,
-        # contact_placeholder IS address_placeholder, and expanding the
-        # address alone would delete {{CONTACT_LINE}} right along with
-        # it (this was happening silently -- contact_line was computed
-        # correctly above and then just never inserted anywhere).
-        # tight_except_last fixes the matching over-spaced-address bug
-        # in the same pass: that paragraph's spacing was meant to apply
-        # once after the whole block, not after every individual line.
+        # {{ADDRESS}}\n{{CONTACT_LINE}} commonly share one paragraph (a
+        # line break, not a paragraph break) -- handle both from one expansion.
         combined_lines = list(address_lines)
         if contact_placeholder is address_placeholder and contact_line:
             combined_lines += contact_line.split("\n")
         _expand_placeholder_paragraph(address_placeholder, combined_lines, tight_except_last=True)
 
     if contact_placeholder is not None and contact_placeholder is not address_placeholder:
-        # Template has {{CONTACT_LINE}} as its own separate paragraph --
-        # still needs _expand_placeholder_paragraph rather than a plain
-        # docx_replace_text substitution, since contact_line can itself
-        # be multiple lines (email/phone on one line, LinkedIn/GitHub
-        # each on their own -- see _build_contact_line).
+        # Needs _expand_placeholder_paragraph, not a plain substitution --
+        # contact_line can be multiple lines (see _build_contact_line).
         if contact_line:
             _expand_placeholder_paragraph(contact_placeholder, contact_line.split("\n"), tight_except_last=True)
         else:
@@ -420,10 +367,8 @@ def build_cover_letter_docx(
     baseline_mode: bool = False,
     resume_variant: str | None = None,
 ) -> None:
-    # In from-scratch mode (no baseline), append a guaranteed closing
-    # sentence so the letter doesn't end abruptly. In baseline-swap mode
-    # the closing is already part of the candidate's own text (and gets
-    # rewritten per-company by stage 5's rule 11), so don't duplicate it.
+    # From-scratch mode needs a guaranteed closing; baseline-swap mode
+    # already has one in the candidate's own text (rewritten by stage 5).
     if not baseline_mode:
         body_paragraphs = list(body_paragraphs) + [CLOSING_SENTENCE]
 
@@ -453,17 +398,9 @@ def build_cover_letter_docx(
 # ---------------------------------------------------------------------------
 
 def _open_in_notepad_and_wait(text: str, draft_path: Path) -> str:
-    """Writes `text` to a predictable, visible file (NOT a randomly-named
-    OS temp file -- that was hard to locate and vanished the moment
-    Notepad closed, which defeated the whole point of offering a file-
-    based edit path over inline copy-paste), opens it in Notepad, and
-    BLOCKS until Notepad is closed (subprocess.run's default behavior)
-    -- that close is the "done editing" signal, rather than polling the
-    file's mtime, which is more fragile (autosave, editors that keep a
-    lock, ambiguity about which save was the "final" one). Returns the
-    file's contents after Notepad exits, whatever they ended up being.
-    The file is left on disk afterward (not deleted) -- see its own
-    docstring note in interactive_cover_letter_review() for why."""
+    """Writes to a predictable, visible file (not a random OS temp file),
+    opens it in Notepad, blocks until Notepad closes (the "done" signal),
+    and returns the resulting contents. File is left on disk afterward."""
     draft_path.parent.mkdir(parents=True, exist_ok=True)
     draft_path.write_text(text, encoding="utf-8")
 
@@ -473,12 +410,9 @@ def _open_in_notepad_and_wait(text: str, draft_path: Path) -> str:
 
 
 def _ai_revise_cover_letter(baseline_text: str, current_text: str, feedback: str, provider: str | None) -> str:
-    """Sends the original baseline, the current (possibly already-edited)
-    text, and your typed feedback to the Anthropic API; asks for a
-    revision that addresses the feedback while staying as close as
-    possible to the current text and the original's voice/structure.
-    Uses the same call_llm_structured convention as the rest of the
-    pipeline (forced structured output, not raw-JSON parsing)."""
+    """Sends baseline + current text + your feedback for a revision that
+    stays close to the current text/voice. Uses the same call_llm_structured
+    convention (forced structured output) as the rest of the pipeline."""
     from pydantic import BaseModel
 
     class CoverLetterRevision(BaseModel):
@@ -499,23 +433,9 @@ def _ai_revise_cover_letter(baseline_text: str, current_text: str, feedback: str
 
 
 def interactive_cover_letter_review(body_paragraphs: list[str], provider: str | None, out_dir: Path) -> list[str] | None:
-    """Full-text review loop over the assembled cover letter, run once
-    right before the docx is built. Returns the finalized list of body
-    paragraphs, or None if the user quit without accepting (caller should
-    treat that as an abort, not proceed to write files).
-
-    (a)ccept the current text as-is
-    (m)anual  -- edit in Notepad, loop back with whatever was saved. The
-                 file lives at <out_dir>/cover_letter_draft.txt -- a
-                 predictable, visible path (not a random OS temp file),
-                 so you can find/re-open it yourself if needed, and it's
-                 already pre-filled with the current text -- no copy-
-                 paste needed, just edit the one or two lines you want
-                 changed and save.
-    (f)eedback -- describe a change in words; an Anthropic API call revises
-                 the current text accordingly; loop back with the result
-    (q)uit    -- abort without building the cover letter
-    """
+    """Full-text review loop before the docx is built: (a)ccept / (m)anual
+    Notepad edit / (f)eedback -> AI revision / (q)uit. Returns finalized
+    paragraphs, or None if quit without accepting."""
     baseline_text = "\n\n".join(body_paragraphs)
     current_text = baseline_text
     draft_path = out_dir / "cover_letter_draft.txt"
@@ -556,21 +476,8 @@ def interactive_cover_letter_review(body_paragraphs: list[str], provider: str | 
 
 def build_followup_steps_txt(jd_input: dict, company: str, role_title: str,
                               keyword_gaps_unsupported: list[str] | None = None) -> str | None:
-    """Builds a plain-text follow-up-outreach checklist from jd_input.json's
-    warm_contact/source_url fields (stage 0's output, read by run() from
-    the same out_dir), plus -- if present -- the JD-required keywords
-    stage 4 found no supporting claim for at all (see
-    core/prose.classify_keyword_gaps). Those are deliberately NOT
-    fed back into edit generation (there's nothing genuine to build an
-    edit from), so this file is where that signal actually goes: either
-    you have real, undocumented experience worth adding to your resume
-    for future applications, or the JD is asking for something you
-    genuinely don't have -- both are useful to know, neither is this
-    pipeline's decision to make on your behalf.
-
-    Returns None only if there's NOTHING actionable to say at all --
-    no warm_contact, no source_url, AND no unsupported keywords --
-    rather than writing a mostly-empty file every time."""
+    """Plain-text follow-up checklist from warm_contact/source_url plus
+    any JD keywords with no supporting claim. None if nothing actionable."""
     contact = jd_input.get("warm_contact") or {}
     name = contact.get("name")
     method = contact.get("contact_method")
@@ -619,16 +526,14 @@ def build_followup_steps_txt(jd_input: dict, company: str, role_title: str,
             "a fit, and that you've just applied. Don't restate the whole cover letter.",
             "",
             "Draft opener (edit before sending — this is a starting point, not a script):",
-            # Prose again, same reasoning as the cover letter's <ROLE_NAME>
-            # swap -- see simplify_role_title_for_prose().
+            # Prose, same reasoning as the <ROLE_NAME> swap below.
             f'  "Hi {name.split()[0] if name else "[name]"}, I just applied for the '
             f'{simplify_role_title_for_prose(role_title)} role at {company} and wanted to '
             f'reach out directly. [one sentence on why this specific role/team]. Happy to '
             f'share more if useful — thanks for your time."',
         ]
     else:
-        # source_url present but no contact info -- still worth a nudge
-        # rather than silently doing nothing, just without a name to reach.
+        # No named contact -- still worth a nudge, just without a name.
         lines += [
             "No named point of contact was found in the posting. Worth 2-3 minutes",
             f"checking {company}'s LinkedIn page or the job post itself for who's",
@@ -646,11 +551,8 @@ def run(resume_template, review_decisions_path, verified_edits_path,
         applicant_city=None, applicant_state=None, applicant_zipcode=None,
         provider=None, skip_cover_letter_review=False,
         cover_letter_baseline=None, resume_variant=None):
-    # Graceful fallback: if a cover letter template path was given
-    # (explicitly, or via the new default) but doesn't actually exist on
-    # disk, don't crash inside python-docx with a confusing error --
-    # warn plainly and fall back to the generic from-scratch build,
-    # same as if none had been requested at all.
+    # If the template path doesn't exist, warn and fall back to
+    # from-scratch rather than crashing inside python-docx.
     if cover_letter_template and not Path(cover_letter_template).exists():
         print(f"WARNING: --cover-letter-template not found at {cover_letter_template!r} "
               f"-- falling back to the generic from-scratch cover letter build.", file=sys.stderr)
@@ -660,11 +562,8 @@ def run(resume_template, review_decisions_path, verified_edits_path,
     verified = json.loads(Path(verified_edits_path).read_text(encoding="utf-8"))
     all_edits = {e["edit_id"]: e for e in verified["passed"] + verified["flagged"]}
 
-    # verification_report.json (stage 6's own output, sitting alongside
-    # verified_edits.json) carries the real discarded_count -- read it
-    # for the audit log rather than hardcoding 0. Missing/unreadable
-    # report shouldn't block assembly, just leaves this field honest
-    # about not knowing rather than silently wrong.
+    # verification_report.json carries the real discarded_count for the
+    # audit log. Missing/unreadable shouldn't block assembly.
     discarded_stage6 = 0
     report_path = Path(verified_edits_path).parent / "verification_report.json"
     if report_path.exists():
@@ -673,8 +572,7 @@ def run(resume_template, review_decisions_path, verified_edits_path,
         except Exception:
             pass
 
-    # jd_input.json (stage 0's output, same out_dir) carries warm_contact/
-    # source_url if the extension found them -- read it for the follow-up
+    # jd_input.json carries warm_contact/source_url for the follow-up
     # steps file below. Missing/unreadable shouldn't block assembly.
     jd_input = {}
     jd_input_path = Path(out_dir) / "jd_input.json"
@@ -706,19 +604,9 @@ def run(resume_template, review_decisions_path, verified_edits_path,
     safe_role = "".join(c for c in role_title if c.isalnum() or c in " -_").strip()
     safe_name = "".join(c for c in applicant_name if c.isalnum() or c in " -_").strip()
 
-    # Truncate company/role dynamically if the FULL PATH would exceed
-    # Windows' ~260-char limit -- real incident: a long app_id folder
-    # name plus a long role title ("Staff Engineer - Distributed
-    # Systems - Flag Delivery", "Principal Backend & Infrastructure
-    # Engineer-Full Time (US /LATAM)") pushed two real generated paths
-    # to 258 and 293 characters, which Word's COM automation surfaced
-    # as "String is longer than 255 characters" and a bare
-    # 'NoneType' object has no attribute 'SaveAs' -- neither error
-    # names the actual cause, so this went undiagnosed until traced
-    # back from the real paths. A fixed-length cap can't work here
-    # since the budget depends on how deep this specific app's folder
-    # already is, so it's computed fresh against the real directory
-    # each time rather than guessed at.
+    # Truncates company/role if the FULL PATH would exceed Windows'
+    # ~260-char limit -- a long path once surfaced as a cryptic Word COM
+    # error ("String is longer than 255 characters") with no clue why.
     PATH_SAFETY_MARGIN = 240  # stay meaningfully under 260, not right at the edge
     longest_suffix = f" - {safe_name} - Cover Letter.docx"  # longest of the five variants
     dir_len = len(str(out / "generated_materials")) + 1  # +1 for the path separator
@@ -726,15 +614,8 @@ def run(resume_template, review_decisions_path, verified_edits_path,
     if budget < 20:
         budget = 20  # floor -- always leave SOMETHING recognizable rather than an empty name
     if len(safe_company) + len(safe_role) > budget:
-        # Company name is the more identity-critical, usually-shorter
-        # field -- preserve it in FULL whenever the budget allows, and
-        # let role_title absorb the cut first. Only fall back to also
-        # truncating company if role_title alone can't be cut enough
-        # (e.g. an unusually long company name). Proportional splitting
-        # was the first attempt here, but it cut a short, recognizable
-        # name like "LaunchDarkly" down to "LaunchDar…" even though the
-        # role title was clearly the actual long part -- company
-        # identity is worth keeping intact over role-title completeness.
+        # Company name is preserved in full whenever the budget allows --
+        # role_title absorbs the cut first; only truncate company if that alone isn't enough.
         role_budget = budget - len(safe_company)
         if role_budget >= 15:
             safe_role = safe_role[:role_budget - 1].rstrip() + "…" if len(safe_role) > role_budget else safe_role
@@ -753,14 +634,8 @@ def run(resume_template, review_decisions_path, verified_edits_path,
     cover_pdf_name = f"{safe_company} - {safe_role} - {safe_name} - Cover Letter.pdf"
     followup_txt_name = f"{safe_company} - {safe_role} - {safe_name} - Follow-Up Steps.txt"
 
-    # Real generated documents go in their own subfolder, not mixed in
-    # with the dozen-plus audit-trail JSON files that also live in
-    # applications/<app_id>/ (jd_input.json, company_brief.json,
-    # edit_brief.json, candidate_edits.json, verified_edits.json,
-    # verification_report.json, review_decisions.json, routing.json,
-    # edit_log.jsonl) -- makes it trivial to find the actual output
-    # among everything else in the folder. Not created in --dry-run
-    # (nothing real is being written anyway).
+    # Own subfolder, not mixed in with the dozen-plus audit-trail JSON
+    # files also in applications/<app_id>/. Not created in --dry-run.
     materials_dir = out / "generated_materials"
     if not dry_run:
         materials_dir.mkdir(parents=True, exist_ok=True)
@@ -775,11 +650,8 @@ def run(resume_template, review_decisions_path, verified_edits_path,
         resume_template, approved_resume_edits, str(resume_docx_path), dry_run,
     )
 
-    # Cover letter: start from the candidate's own baseline text and
-    # apply approved edits as targeted in-place swaps -- same mechanics
-    # as the resume path, same verbatim-match-and-replace logic. The
-    # letter's narrative structure, tense, and voice survive by default;
-    # only the parts that earned an edit for THIS job change.
+    # Applies approved edits as targeted in-place swaps against the
+    # baseline -- same verbatim-match-and-replace logic as the resume path.
     if cover_letter_baseline:
         baseline_text = Path(cover_letter_baseline).read_text(encoding="utf-8").replace("\r\n", "\n")
     else:
@@ -791,15 +663,8 @@ def run(resume_template, review_decisions_path, verified_edits_path,
     cl_unmatched = []
     
     for edit in approved_cover_edits:
-        # Strip both sides before matching -- a real case showed the
-        # model's original_text field including the trailing blank-line
-        # paragraph separator as part of what it considered "the text",
-        # while final_text didn't restore an equivalent one. The replace
-        # then correctly swapped exactly what matched (separator
-        # included), fusing that paragraph directly onto the next one
-        # with zero space between them. Stripping means a swap can only
-        # ever touch the paragraph's own content, never the whitespace
-        # that separates it from its neighbors.
+        # Stripped before matching -- an unstripped original_text once
+        # ate its trailing blank-line separator, fusing two paragraphs together.
         original = edit.get("original_text", "").strip()
         replacement = edit["final_text"].strip()
 
@@ -841,25 +706,16 @@ def run(resume_template, review_decisions_path, verified_edits_path,
 
     # Split into paragraphs on blank lines (preserving bullet structure)
     raw_body = "\n".join(body_lines[body_start:body_end])
-    # Replace the baseline's own placeholders with this application's
-    # real company/role — these are in the candidate's original text
-    # (e.g. "<COMPANY_NAME>", "<ROLE_NAME>", "the Core Technology team")
-    # and survive the swap process since stage 5 only touches specific
-    # passages, not the whole letter.
+    # Baseline placeholders survive stage 5's swaps since it only
+    # touches specific passages, not the whole letter -- replaced here.
     raw_body = raw_body.replace("<COMPANY_NAME>", company)
-    # Prose (a sentence, not a subject/header line) -- simplified so a
-    # title like "Staff Software Engineer, Backend (Search)" doesn't
-    # read as a run-on mid-sentence. The Re: line a few paragraphs up
-    # uses the verbatim role_title instead; see
-    # simplify_role_title_for_prose()'s own docstring for why the two
-    # spots are treated differently.
+    # Simplified for prose so a long title doesn't read as a run-on;
+    # the Re: line above uses the verbatim role_title instead.
     raw_body = raw_body.replace("<ROLE_NAME>", simplify_role_title_for_prose(role_title))
     cover_body_paragraphs = [p.strip() for p in raw_body.split("\n\n") if p.strip()]
 
-    # Interactive review is for the old from-scratch path; skip it for
-    # baseline-swap mode since stage 8 already reviewed each individual
-    # swap. The skip_cover_letter_review flag from batch_assemble still
-    # applies as a safety net regardless.
+    # Skipped for baseline-swap mode -- stage 8 already reviewed each
+    # swap. skip_cover_letter_review still applies as a safety net.
     if cover_body_paragraphs and not skip_cover_letter_review and not cover_letter_baseline:
         reviewed = interactive_cover_letter_review(cover_body_paragraphs, provider, out)
         if reviewed is None:

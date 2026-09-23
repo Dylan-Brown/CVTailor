@@ -28,25 +28,12 @@ APPLICANT_INFO_PATH = CONFIG_ROOT / "applicant_info.json"
 
 APPLICATIONS_ROOT = JOBS_ROOT / "applications"
 SHARED_DIR = APPLICATIONS_ROOT / "_shared"  # stage 2's output, reused across every JD
-ARCHIVED_DIR = APPLICATIONS_ROOT / "archived"  # permanent -- applications you're fully
-                                                # done with, packed up as one folder
-                                                # (jd folder + its generated_materials/),
-                                                # never touched by py_pipeline_reset.py
+ARCHIVE_ROOT = APPLICATIONS_ROOT / "archive"  # permanent; never touched by py_pipeline_reset.py or
+                                               # run_pipeline.py -- see py_post_pipeline_store_applied.py.
+                                               # One subfolder per outcome: applied/cut_off/revisit/test/done.
 STAGES_DIR = JOBS_ROOT / "src" / "stages"
 
-# Every name directly under applications/ that's bookkeeping/archival or
-# your own manual organizing, never a live JD folder -- every script
-# that lists applications/ must skip ALL of these, or a folder like
-# applications/archive/ (py_post_pipeline_store_applied.py's destination) gets silently
-# walked as if it were itself one application (a bogus review, a fake
-# definition_of_done_report.json written INTO applications/archive/,
-# etc). Centralized here after three separate hand-copied versions of
-# this exclusion set had each drifted to miss "archive" (the real,
-# in-use folder name -- "archived" is ARCHIVED_DIR above, a distinct,
-# currently-unused destination) and none of them knew about "revisit".
-# Any new folder you manually create directly under applications/ for
-# your own organizing needs to be added here too, or every stage that
-# auto-discovers pending work will misread it as a real application.
+# Bookkeeping and archival folders directly under applications/ to be skipped by application scanners.
 NON_APPLICATION_DIR_NAMES = {"_shared", "archive", "archived", "revisit"}
 
 # Marks a JD as fully assembled (real resume/cover-letter output
@@ -68,11 +55,8 @@ def app_dirs() -> list[Path]:
 
 
 def find_jd_input(app_dir: Path) -> Path | None:
-    """jd_input.json before assembly, jd_input.processed.json after --
-    checks both since the file gets renamed on successful assembly.
-    Returns None if neither exists (stage 0 was never run for this
-    folder, which shouldn't normally happen but is worth handling
-    rather than crashing on)."""
+    """jd_input.json before assembly, jd_input.processed.json after.
+    None if neither exists (stage 0 never ran for this folder)."""
     processed = app_dir / PROCESSED_JD_NAME
     if processed.is_file():
         return processed
@@ -85,32 +69,22 @@ def is_processed(app_dir: Path) -> bool:
 
 
 def mark_processed(app_dir: Path) -> None:
-    """Renames jd_input.json -> jd_input.processed.json. Called once,
-    right after py_stage9_assemble.py has produced real output for
-    this application -- see py_pipeline_assemble.py. No-op if already
-    renamed (idempotent, safe to call from --force re-runs)."""
+    """Renames jd_input.json -> jd_input.processed.json after stage 9
+    produces real output. No-op if already renamed (safe for --force)."""
     src = app_dir / UNPROCESSED_JD_NAME
     if src.is_file():
         src.rename(app_dir / PROCESSED_JD_NAME)
 
 
 def is_example_file(path: Path) -> bool:
-    """True for CVTailor's example/placeholder-file convention:
-    <name>.example.<ext> (e.g. backend.example.json, anthropic_key.example.txt)
-    -- these ship in git as templates to copy from, never as real input
-    for the pipeline to discover or route to. Matched by the second-to-
-    last dot-segment, not a name substring, so a real file that happens
-    to contain "example" elsewhere in its name (e.g. "example_role.json")
-    isn't mistakenly excluded."""
+    """True for <name>.example.<ext> template files (e.g. backend.example.json).
+    Matched by dot-segment, not substring, so "example_role.json" isn't excluded."""
     return path.suffixes[-2:-1] == [".example"]
 
 
 def discover_single_file(directory: Path, extensions: tuple[str, ...], label: str) -> Path:
-    """Finds exactly one file with a matching extension in `directory`,
-    skipping *.example.<ext> template files (see is_example_file).
-    Raises with a clear, specific message if there's zero or more than
-    one — ambiguity here should stop the batch immediately rather than
-    silently picking one."""
+    """Exactly one matching file in `directory`, skipping *.example.<ext>
+    templates. Raises on zero or 2+ matches -- never silently guesses."""
     directory.mkdir(parents=True, exist_ok=True)
     candidates = sorted(
         p for p in directory.iterdir()
@@ -131,12 +105,8 @@ def discover_single_file(directory: Path, extensions: tuple[str, ...], label: st
 
 
 def discover_single_file_optional(directory: Path, extensions: tuple[str, ...], label: str) -> Path | None:
-    """Like discover_single_file, but returns None instead of raising when
-    zero files are found — for config inputs that are genuinely optional
-    (e.g. cover_letter_template/). Still raises on ambiguity (2+ files),
-    since silently guessing wrong there is worse than not having the
-    feature at all. Also skips *.example.<ext> template files (see
-    is_example_file)."""
+    """Like discover_single_file, but None instead of raising on zero
+    files -- for genuinely optional config inputs. Still raises on 2+."""
     directory.mkdir(parents=True, exist_ok=True)
     candidates = sorted(
         p for p in directory.iterdir()
@@ -166,11 +136,8 @@ def load_applicant_info() -> dict:
 
 
 def safe_id_from_filename(path: Path) -> str:
-    """The JD's own filename (minus extension) becomes the canonical
-    id for that application — used for applications/<id>/. Only
-    strips characters that are actually invalid in Windows filenames;
-    otherwise preserves whatever naming convention you already used,
-    since it came from a real filename to begin with."""
+    """The JD's own filename (minus extension) becomes applications/<id>/.
+    Only strips characters invalid in Windows filenames."""
     stem = path.stem
     cleaned = re.sub(r'[<>:"/\\|?*]', "_", stem).strip()
     return cleaned or "unnamed"
@@ -181,22 +148,8 @@ def file_hash(path: Path) -> str:
 
 
 # ---------- Resume variant detection + routing ----------
-#
-# Moved here from src/stages/py_stage01_score_jd_input.py so run_pipeline.py can use
-# the exact same classifier for routing that stage1 uses for
-# suggesting -- one source of truth, no risk of the two drifting apart.
-# Deterministic keyword check, NOT an LLM call -- cheap, and doesn't
-# need to be an LLM call for a question this well-defined.
-#
-# Which resumes exist, what routes a JD to each one, and which template
-# each one assembles into all live in config/resume_variants/*.json --
-# never hardcoded here. That's the point: this file used to assume
-# exactly two variants named "Backend" and "Full Stack", detected via
-# a hardcoded frontend-keyword list and filename substring matching.
-# Anyone who clones this repo with a different set of resumes (a third
-# "AI Engineer" variant, a single generalist resume, whatever) couldn't
-# use it without editing this module. Now a variant is just a JSON file
-# -- see config/resume_variants/*.example.json for the shape.
+# Deterministic keyword check, not an LLM call. Routing config lives
+# entirely in config/resume_variants/*.json, never hardcoded here.
 
 @dataclass
 class ResumeVariant:
@@ -209,11 +162,8 @@ class ResumeVariant:
 
 
 def load_resume_variants() -> dict[str, ResumeVariant]:
-    """Reads every config/resume_variants/*.json (skipping *.example.json
-    -- those are shipped templates to copy from, not live config) and
-    returns {label: ResumeVariant}. This is the single source of truth
-    for which resumes exist, which template each one assembles into,
-    and which keywords route a JD to it."""
+    """Every config/resume_variants/*.json (skipping *.example.json) as
+    {label: ResumeVariant} -- the single source of truth for routing."""
     RESUME_VARIANTS_DIR.mkdir(parents=True, exist_ok=True)
     files = sorted(
         p for p in RESUME_VARIANTS_DIR.iterdir()
@@ -300,17 +250,9 @@ def _find_signal_hits(texts: list[str], keywords: list[str]) -> list[str]:
 
 
 def suggest_resume_variant(jd) -> tuple[str, str]:
-    """Suggests which resume variant fits a JD by checking each non-
-    default variant's keywords against the JD text -- NOT by
-    classifying the job title, which is an unreliable signal for this.
-    Checks requirements_raw + responsibilities_raw first (the fields
-    harvester_adapter.py documents as primary/authoritative), falling
-    back to full_description_text only if both are empty, and to the
-    config-designated default variant if nothing matches anywhere.
-    When more than one variant's keywords hit, the variant with the
-    most distinct keyword hits wins. Returns (suggestion, reasoning).
-    `jd` is a schemas.JDInput or anything with the same attribute
-    names."""
+    """Suggests a variant by checking keywords against requirements_raw +
+    responsibilities_raw first, falling back to full_description_text,
+    then the default variant. Most distinct keyword hits wins."""
     variants = load_resume_variants()
     default_variant = next(v for v in variants.values() if v.is_default)
     scored_variants = [v for v in variants.values() if not v.is_default and v.keywords]
@@ -357,23 +299,15 @@ def slugify_variant(label: str) -> str:
 
 
 def discover_resume_variants() -> dict[str, Path]:
-    """Returns {variant_label: resume_path} for every resume variant
-    configured in config/resume_variants/*.json -- see
-    load_resume_variants(). Kept as a thin wrapper so callers that only
-    need paths (ensure_variant_ingest, py_pipeline_precheck.py) don't
-    need to know about the full ResumeVariant config."""
+    """{variant_label: resume_path} -- thin wrapper for callers that
+    only need paths, not the full ResumeVariant config."""
     return {v.label: v.resume_path for v in load_resume_variants().values()}
 
 
 def ensure_variant_ingest(force: bool = False, dry_run: bool = False, provider: str = "lmstudio") -> tuple[dict[str, Path], Path, Path]:
-    """Runs stage 2 once per resume variant (not once per JD, and not
-    just once overall) -- claims_ledger content genuinely differs per
-    resume, but style_profile is voice-only and shouldn't meaningfully
-    vary by which resume you're using, so it's computed once and
-    shared. Re-runs a variant automatically if that resume's content
-    (or the shared cover letter sample) changed since last time, or if
-    forced. Returns ({variant_label: ledger_path}, shared_style_path,
-    cover_letter_sample_path)."""
+    """Runs stage 2 once per resume variant (not per JD) -- claims_ledger
+    differs per resume, but style_profile is shared. Re-runs a variant
+    if its resume/cover-letter content changed, or if forced."""
     variants = discover_resume_variants()
     cover_letter_path = discover_single_file(COVER_LETTER_SAMPLE_DIR, (".txt",), "cover letter sample")
 
@@ -415,11 +349,8 @@ def ensure_variant_ingest(force: bool = False, dry_run: bool = False, provider: 
             print(f"Reusing cached {ledger_path} (variant: {label}, unchanged).")
 
         ledger_paths[label] = ledger_path
-        # First variant's style profile becomes the canonical shared
-        # one -- see docstring. Only copies once; later variants don't
-        # overwrite it, avoiding a spurious "different every run" look
-        # from LLM non-determinism on a value that isn't supposed to
-        # vary by resume anyway.
+        # First variant's style profile becomes canonical; later variants
+        # don't overwrite it -- avoids spurious run-to-run LLM variance.
         if not canonical_style_path.is_file() and variant_style_path.is_file():
             shutil.copy(variant_style_path, canonical_style_path)
 
@@ -430,15 +361,8 @@ def ensure_variant_ingest(force: bool = False, dry_run: bool = False, provider: 
 
 
 def pick_ledger_for_jd(jd, ledger_paths: dict[str, Path]) -> tuple[Path, str, str]:
-    """Routes a JD to the right variant's claims ledger using
-    suggest_resume_variant(). Falls back to the config-designated
-    default variant (see load_resume_variants()) with a clear warning
-    if the suggestion somehow doesn't match any ledger actually on hand
-    -- shouldn't normally happen since suggest_resume_variant() only
-    ever suggests variants it loaded from the same config, but this
-    keeps the caller from crashing if ledger_paths was built from a
-    stale or filtered subset. Returns (ledger_path, variant_used,
-    reasoning)."""
+    """Routes via suggest_resume_variant(), falling back to the default
+    variant if the suggestion has no matching ledger on hand."""
     suggestion, reasoning = suggest_resume_variant(jd)
     if suggestion in ledger_paths:
         return ledger_paths[suggestion], suggestion, reasoning
@@ -450,17 +374,9 @@ def pick_ledger_for_jd(jd, ledger_paths: dict[str, Path]) -> tuple[Path, str, st
 
 
 def discover_resume_template_variants() -> dict[str, Path]:
-    """Returns {variant_label: template_path} for every resume variant
-    that names a "resume_template" in its config/resume_variants/*.json
-    (see load_resume_variants()) -- the actual document stage 9 edits
-    in place, separate from the resume text used for claims-ledger
-    extraction. If no variant names a template at all, falls back to
-    the single file in config/resume_template/ (the common case if your
-    document structure doesn't need to differ per variant, only the
-    resume TEXT does), returned as {"*": template_path} meaning "use
-    for every variant". Naming a template for some variants but not
-    others is treated as a config error -- that's ambiguous, not a
-    sensible partial default."""
+    """{variant_label: template_path} per variant's "resume_template".
+    Falls back to the single config/resume_template/ file as {"*": path}
+    if no variant names one. Naming it for some but not others is a config error."""
     variants = load_resume_variants()
     explicit = {v.label: v.template_path for v in variants.values() if v.template_path is not None}
     missing = [v.label for v in variants.values() if v.template_path is None]
@@ -479,10 +395,8 @@ def discover_resume_template_variants() -> dict[str, Path]:
 
 
 def pick_template_for_variant(variant_used: str, templates: dict[str, Path]) -> Path:
-    """Routes to the matching resume template, mirroring
-    pick_ledger_for_jd()'s fallback behavior. "*" means a single
-    shared template used regardless of variant (see
-    discover_resume_template_variants())."""
+    """Routes to the matching resume template. "*" means one shared
+    template regardless of variant."""
     if "*" in templates:
         return templates["*"]
     if variant_used in templates:

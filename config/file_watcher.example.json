@@ -9,7 +9,7 @@
     "debounce_seconds": 0.75
   },
   "logging": {
-    "log_file": "../logs/file_watcher.json"
+    "log_file": "../log/file_watcher.json"
   },
   "intake": {
     "watch_dir": "C:/path/to/your/cloud-synced/intake/folder",

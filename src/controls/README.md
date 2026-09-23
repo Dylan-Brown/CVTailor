@@ -10,10 +10,10 @@ where things stand.
   and marks it processed.
 * **`py_pipeline_reset.py`** — resets one (or every) JD's downstream
   state so it starts clean on the next `run_pipeline.py --force`.
-* **`py_pipeline_store_archive.py`** — moves a fully-done application
-  into `applications/archived/`.
-* **`py_post_pipeline_store_applied.py`** — archives an application you've
-  actually sent, logging it for `py_applications_stats.py`'s weekly
-  breakdown.
+* **`py_post_pipeline_store_applied.py`** — archives one application (by
+  prefix) or every live application (`--all`, warns and confirms first)
+  into `applications/archive/<outcome>/` -- applied (default), cut_off,
+  revisit, test, or done (fully finished, no specific outcome). Logs
+  every move for `py_applications_stats.py`'s weekly breakdown.
 * **`py_post_pipeline_open_app_urls.py`** — opens every live application's
   `source_url` in your browser, for a final human look before sending.

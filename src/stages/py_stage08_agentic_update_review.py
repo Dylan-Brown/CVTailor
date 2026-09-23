@@ -1,17 +1,7 @@
 #!/usr/bin/env python3
 """
-py_stage08_reviewer_interface.py
-================================
-Dispatcher for Stage 8 Review.
-
-Reads the `pipeline.yaml` configuration and executes the appropriate backend:
-  - User  -> `py_stage08_agentic_update_review.py` (Interactive CLI).
-  - Agent -> Routes to the designated wrapper (Gemini, Claude, or Local).
-
-All arguments are forwarded transparently to the selected backend.
-
-Usage:
-    python src/ai_wrappers/py_stage08_reviewer_interface.py [--app-id <id>] [--force] [...]
+py_stage08_agentic_update_review.py -- the interactive human review CLI
+for stage 8. Shows each surviving edit; you approve/reject/edit it.
 """
 import argparse
 import difflib
@@ -44,11 +34,8 @@ _TECH_ALLOWLIST = {
 
 
 def _load_requirement_priorities(out_dir: Path) -> dict[str, str]:
-    """Reads edit_brief.json (stage 4's output, if present) and returns
-    {requirement_text_lower: priority}, where priority is "required" or
-    "preferred" -- stage 4 already classified every JD requirement this
-    way. Returns {} if edit_brief.json isn't there (ranking then falls
-    back to edit_type alone, still deterministic, just less informed)."""
+    """edit_brief.json's (stage 4) requirement priorities, lowercased.
+    Returns {} if missing -- ranking then falls back to edit_type alone."""
     brief_path = out_dir / "edit_brief.json"
     if not brief_path.exists():
         return {}
@@ -71,14 +58,8 @@ _EDIT_TYPE_IMPACT = {
 
 
 def score_edit(edit: dict, requirement_priorities: dict[str, str]) -> int:
-    """Deterministic impact score, no LLM call -- higher means more worth
-    your limited review time. Base score is edit_type (a real proxy for
-    how substantive the change is, not just wording). Bonus if the
-    edit's text overlaps a JD requirement stage 4 already flagged as
-    "required" (+2) or "preferred" (+1) -- this is a text-overlap
-    heuristic, not a true link (CandidateEdit doesn't carry a reference
-    to which specific gap it addresses), so treat ties/near-ties as
-    equivalent rather than trusting single-point differences."""
+    """Deterministic impact score (no LLM call): edit_type base score,
+    +2/+1 bonus if the text overlaps a "required"/"preferred" JD requirement."""
     score = _EDIT_TYPE_IMPACT.get(edit.get("edit_type"), 0)
 
     suggested = (edit.get("suggested_text") or "").lower()
@@ -93,20 +74,14 @@ def score_edit(edit: dict, requirement_priorities: dict[str, str]) -> int:
 
 
 def edits_file_for(app_dir: Path) -> Path:
-    """critiqued_edits.json (stage 7's output) when it exists, else
-    verified_edits.json (stage 6's). Stage 7 is an optional gate -- an
-    app prepared before it existed, or a run that deliberately skipped
-    it, still reviews fine straight off stage 6's output."""
+    """critiqued_edits.json (stage 7) if present, else verified_edits.json (stage 6)."""
     critiqued = app_dir / "critiqued_edits.json"
     return critiqued if critiqued.is_file() else app_dir / "verified_edits.json"
 
 
 def find_matches_by_prefix(prefix: str) -> list[Path]:
     """Case-insensitive startswith match against live applications/
-    folders -- same convention py_post_pipeline_store_applied.py and py_pipeline_assemble.py
-    already use for their own prefix matching, reused here so --app-id
-    behaves consistently across the project instead of introducing a
-    second matching rule."""
+    folders -- same convention every other --app-id script uses."""
     if not APPLICATIONS_ROOT.is_dir():
         return []
     prefix_lower = prefix.lower()
@@ -119,14 +94,8 @@ def find_matches_by_prefix(prefix: str) -> list[Path]:
 
 
 def resolve_app_dir(app_id: str) -> Path:
-    """Resolves --app-id by exact match first (so a real folder name
-    always wins even on the off chance it's also a prefix of another),
-    then falls back to a case-insensitive PREFIX match against folders
-    directly under applications/ -- lets you type a short leading
-    fragment instead of the full company_role_date app_id. A prefix
-    matching zero or more than one folder is a hard error, not a
-    guess -- picking the wrong application silently would be worse
-    than making you retype it."""
+    """Exact match first, then case-insensitive prefix match. Zero or
+    2+ matches is a hard error -- never guess which application you meant."""
     exact = APPLICATIONS_ROOT / app_id
     if exact.is_dir():
         return exact
@@ -144,12 +113,8 @@ def resolve_app_dir(app_id: str) -> Path:
 
 
 def _decided_edit_ids(app_dir: Path) -> set[str]:
-    """edit_ids that already have a recorded decision for this app, or
-    the empty set if review_decisions.json doesn't exist / is corrupt.
-    Used to tell "already reviewed" apart from "not reviewed yet" at
-    the individual-edit level rather than the whole-file level -- an
-    app can have SOME edits decided (e.g. a prior session was quit
-    early, or --max-edits truncated it) and still have real work left."""
+    """edit_ids already decided, or {} if the file is missing/corrupt.
+    Lets a partially-reviewed app (quit early, --max-edits) resume correctly."""
     decisions_path = app_dir / "review_decisions.json"
     if not decisions_path.is_file():
         return set()
@@ -161,23 +126,9 @@ def _decided_edit_ids(app_dir: Path) -> set[str]:
 
 
 def find_pending_reviews() -> list[Path]:
-    """Application dirs with REAL (non-dry-run) edits that still have
-    at least one undecided edit -- the same "verified" state
-    py_pipeline_status.py reports, but at edit granularity rather than
-    whole-file: an app whose review_decisions.json only covers SOME of
-    its edits (quit early, or a prior --max-edits truncation) is still
-    pending, not done. Reads whichever of critiqued_edits.json /
-    verified_edits.json applies (see edits_file_for). Explicitly
-    excludes dry-run placeholder files (stages 5 and 5b both write real
-    files to those paths in --dry-run so downstream wiring can be
-    smoke-tested without spending anything -- see their own comments)
-    -- otherwise auto-discover would surface placeholder/unverified
-    content as if it were ready for review, right after someone ran a
-    dry-run sanity check before their real batch.
-
-    Deliberately does NOT surface edits already decided -- that's what
-    --app-id is for (see run()'s revisit parameter). Auto-discover
-    should only ever hand you fresh, undecided work."""
+    """Apps with a real (non-dry-run) edits file that still has at
+    least one undecided edit. Excludes dry-run placeholder files and
+    edits already decided (use --app-id to revisit those)."""
     if not APPLICATIONS_ROOT.is_dir():
         return []
     candidates = sorted(
@@ -201,12 +152,8 @@ def find_pending_reviews() -> list[Path]:
 
 
 def find_all_apps_with_edits() -> list[Path]:
-    """Same candidate set as find_pending_reviews() -- every live
-    applications/<id>/ folder with a real (non-dry-run) edits file --
-    but WITHOUT filtering down to only apps that still have an
-    undecided edit. Used by --force's whole-batch mode: with no
-    --app-id given, --force means "revisit every app's decisions,"
-    not just apps that still have something new to decide."""
+    """Same candidate set as find_pending_reviews(), minus the undecided-
+    edit filter -- used by --force's whole-batch revisit mode."""
     if not APPLICATIONS_ROOT.is_dir():
         return []
     candidates = sorted(
@@ -228,13 +175,8 @@ def find_all_apps_with_edits() -> list[Path]:
 
 
 def _load_known_words() -> set[str]:
-    """Pulls every word out of the shared claims ledger(s) so real names/terms
-    that already appear in your actual resume don't get flagged as typos —
-    only genuinely new, dictionary-unknown words in freshly typed text do.
-    Scans both the current per-variant ledgers (applications/_shared/
-    variants/*/claims_ledger.json) and the legacy flat single-ledger path
-    (applications/_shared/claims_ledger.json, from before variant routing
-    existed) -- whichever are actually present, merged together."""
+    """Every word from the claims ledger(s), so real resume terms don't
+    get flagged as typos. Merges current per-variant and legacy flat ledgers."""
     words = set()
     ledger_paths = list((APPLICATIONS_ROOT / "_shared" / "variants").glob("*/claims_ledger.json"))
     legacy_ledger = APPLICATIONS_ROOT / "_shared" / "claims_ledger.json"
@@ -251,10 +193,8 @@ def _load_known_words() -> set[str]:
 
 
 def _check_for_typos(text: str) -> list[str]:
-    """Returns likely-misspelled words in `text`, or [] if pyspellchecker
-    isn't installed / nothing looks off. This exists because hand-edited
-    text skips every other check in this pipeline — stage 6 never sees it,
-    it goes straight into the final document."""
+    """Likely-misspelled words in `text`, or [] if pyspellchecker is
+    missing. Exists because hand-edited text skips every other check."""
     try:
         from spellchecker import SpellChecker
     except ImportError:
@@ -268,22 +208,9 @@ def _check_for_typos(text: str) -> list[str]:
 
 
 def _confirm_edited_text(text: str) -> str:
-    """Echoes hand-typed text back and ALWAYS requires an explicit
-    confirmation before accepting it — this is the one path in the
-    whole pipeline nothing else checks; stage 6's fact-check never
-    sees text you type here, so there is no other safety net.
-
-    Real incident that made this unconditional: a KeyboardInterrupt
-    mid-edit left stale text sitting in the terminal's stdin buffer:
-    the NEXT script invocation's input() calls silently consumed that
-    leftover buffered text instead of live keystrokes, and a LATER,
-    unrelated edit ended up committed with a DIFFERENT edit's text --
-    perfectly well-formed prose, zero typos, so the old typo-gated
-    confirmation never fired and it was only caught by chance (the
-    wrong text happened to also fail stage 9's verbatim-match check).
-    A stdin mixup produces coherent, typo-free text almost by
-    definition, so confirmation can never be conditional on finding a
-    typo -- that's exactly the case it needs to catch."""
+    """Echoes hand-typed text back and always requires confirmation --
+    the one path nothing else in the pipeline checks (a past stdin-
+    buffer mixup once produced coherent but wrong text, so this can't be typo-gated)."""
     while True:
         typos = _check_for_typos(text)
         print(f"  You entered: {text}")
@@ -302,19 +229,9 @@ _GENERIC_CAPITALIZED_WORDS = {
 
 
 def _extract_distinctive_tokens(text: str) -> set[str]:
-    """Numbers and capitalized proper-noun-ish tokens -- the same kind
-    of specific, checkable content that (if repeated) usually signals
-    real duplication rather than coincidental word overlap. Same idea
-    as py_post_pipeline_verify_materials.py's post-assembly repeated-dollar-figure check,
-    generalized slightly and moved earlier in the pipeline -- catching
-    this at review time, not just after the document is already built.
-
-    Generic sentence-starting capitals ("What draws me to...", "Why
-    I...") are filtered out -- every "why this company" edit legitimately
-    starts the same way, and without this filter that shared boilerplate
-    alone triggered a false duplicate flag between two edits that
-    actually made two different points, which masked a real
-    contradiction signal on one of them in testing."""
+    """Numbers and capitalized proper-noun-ish tokens -- specific,
+    checkable content whose repetition usually signals real duplication.
+    Generic sentence-starters ("What", "Why"...) are filtered to avoid false positives."""
     tokens = set()
     tokens.update(re.findall(r"\$[\d,.]+\s?[MmBbKk]?", text))
     tokens.update(re.findall(r"\b\d{2,}\+?%?\b", text))
@@ -324,21 +241,9 @@ def _extract_distinctive_tokens(text: str) -> set[str]:
 
 def _find_duplicate_signal(edit: dict, other_edits: list[dict], baseline_text: str,
                             company_name: str = "") -> str | None:
-    """Deterministic, no LLM call -- checks this edit's suggested_text
-    against every OTHER edit of the SAME document type in the same
-    review batch, and (for new cover-letter content only, not reword-
-    in-place edits, which are SUPPOSED to overlap with their own
-    original bullet) against the untouched baseline document. Returns
-    a plain-English warning naming exactly what's shared and where, or
-    None if nothing distinctive overlaps.
-
-    The company's own name is excluded from comparison -- it
-    legitimately appears in nearly every company-specific edit
-    (every "why this company" sentence says the company's name at
-    least once), so without this exclusion it registered as "shared
-    duplicate content" between two edits that actually made two
-    completely different points, which masked a real contradiction
-    signal on one of them in testing."""
+    """No LLM call -- checks suggested_text against every other edit of
+    the SAME target in this batch, and (new cover-letter content only)
+    against the baseline letter. Company name excluded since it legitimately repeats."""
     my_tokens = _extract_distinctive_tokens(edit["suggested_text"])
     if company_name:
         my_tokens -= _extract_distinctive_tokens(company_name)
@@ -349,10 +254,8 @@ def _find_duplicate_signal(edit: dict, other_edits: list[dict], baseline_text: s
         if other["edit_id"] == edit["edit_id"]:
             continue
         if other.get("target") != edit.get("target"):
-            continue  # resume mentioning a skill AND the cover letter also
-                       # mentioning it is normal and expected -- only compare
-                       # within the same document, where repeating a point
-                       # actually costs you space and reads as padding
+            continue  # only compare within the same document -- a resume
+                       # skill also appearing in the cover letter is normal
         overlap = my_tokens & _extract_distinctive_tokens(other["suggested_text"])
         if overlap:
             return (f"shares {', '.join(sorted(overlap))} with [{other['edit_id']}] "
@@ -372,12 +275,8 @@ _WORK_MODE_TERMS = {"remote", "hybrid", "onsite", "on-site", "in-office"}
 
 
 def _company_brief_text(app_dir: Path) -> tuple[str, str]:
-    """Flattens company_brief.json's actual findings into one search
-    blob -- stack_signals plus every finding's claim text, across all
-    three finding categories -- and returns the company's own name
-    alongside it, since callers need both. Returns ("", "") if stage 3
-    never ran or found nothing (missing file, empty brief) -- callers
-    should treat that as "nothing to check against," not an error."""
+    """Flattens company_brief.json into one search blob + the company
+    name. Returns ("", "") if stage 3 never ran -- callers treat that as "nothing to check"."""
     brief_path = app_dir / "company_brief.json"
     if not brief_path.is_file():
         return "", ""
@@ -392,22 +291,9 @@ def _company_brief_text(app_dir: Path) -> tuple[str, str]:
 
 
 def _find_company_contradiction(edit: dict, company_brief_text: str) -> str | None:
-    """Only checked for cover-letter edits that are actually ABOUT the
-    company (why-this-company / culture / context sections, by name --
-    a resume reword doesn't make company-specific claims, so it's
-    never relevant there). Flags specific, named claims about the
-    company -- a work-mode term, or a capitalized tech-sounding token
-    -- that don't appear anywhere in what stage 3's own research
-    actually found. Deterministic, no new LLM call, same class of risk
-    as claims-ledger fabrication checking, just pointed at the
-    company's facts instead of the candidate's own.
-
-    Real heuristic limits, same caveat as the keyword/duplicate checks:
-    generic capitalized words can false-positive (a company_brief that
-    happens not to mention "Kubernetes" by name doesn't prove an edit
-    mentioning it is WRONG, only that our own research didn't confirm
-    it) -- treat this as "worth a second look," not "definitely wrong."
-    """
+    """Only for cover-letter edits actually about the company. Flags
+    named claims (work-mode terms, capitalized tech tokens) that stage
+    3's own research never found -- "worth a second look," not "definitely wrong"."""
     if edit.get("target") != "cover_letter" or not company_brief_text:
         return None
     section = (edit.get("section") or "").lower()
@@ -432,24 +318,9 @@ def _find_company_contradiction(edit: dict, company_brief_text: str) -> str | No
 
 
 def _find_unsupported_new_term(edit: dict, claims_by_id: dict[str, str]) -> str | None:
-    """A hard, mechanical backstop underneath stage 6's own LLM
-    judgment -- not a replacement for it. Stage 6 makes a holistic call
-    on whether an edit sounds true; this checks something narrower and
-    checkable: for a resume reword that ADDS a specific technical term
-    not present in the original bullet, does the text of at least one
-    of the claims it actually cites contain that term? A real gap this
-    closes: an edit can cite a real, valid claim_id while still
-    introducing a term that specific claim never mentions -- subtle
-    scope creep that a holistic "does this sound plausible" judgment
-    can miss, since the cited claim IS real, just not actually
-    supporting the NEW part.
-
-    Only checked for resume rewords with a non-empty original_text to
-    diff against (cover-letter "new sentence" edits have no original
-    to compare against, so there's nothing to call "newly introduced"
-    versus what was already there) and only when claim_ids_referenced
-    is non-empty (an edit with zero claims cited is already stage 6's
-    problem, not this check's)."""
+    """Mechanical backstop under stage 6's holistic judgment: for a
+    resume reword adding a new technical term, does the cited claim's
+    own text actually contain it? Catches scope creep a real-but-irrelevant citation hides."""
     if edit.get("target") != "resume" or edit.get("edit_type") != "reword":
         return None
     original = edit.get("original_text")
@@ -471,12 +342,8 @@ def _find_unsupported_new_term(edit: dict, claims_by_id: dict[str, str]) -> str 
 
 
 def _find_placeholder_leak(edit: dict) -> str | None:
-    """Currently only checked by py_post_pipeline_verify_materials.py, AFTER assembly --
-    if that check is ever skipped (forgotten, or run against the wrong
-    app), a literal "<COMPANY_NAME>" or unresolved "{{...}}" ships in a
-    real document. Checking the same KNOWN_BAD_PHRASES list here too,
-    at review time, means it's caught before assembly even happens,
-    not just before sending."""
+    """Same KNOWN_BAD_PHRASES check py_post_pipeline_verify_materials.py
+    runs post-assembly, done here too so a leak is caught before assembly."""
     for phrase in KNOWN_BAD_PHRASES:
         if phrase in edit["suggested_text"]:
             return f"contains {phrase!r} verbatim -- an unresolved placeholder or leftover artifact"
@@ -484,11 +351,8 @@ def _find_placeholder_leak(edit: dict) -> str | None:
 
 
 def _find_degenerate_text(edit: dict) -> str | None:
-    """A real sanity floor, not a hypothetical -- the same class of
-    silent-corruption risk as the blank-Enter-wipes-a-bullet bug fixed
-    earlier (that one was YOUR input; this is the MODEL's output, same
-    danger). Empty or near-empty generated text should never be
-    silently approved."""
+    """Empty or near-empty generated text should never be silently
+    approved -- same class of risk as the blank-input bug this pipeline already guards against."""
     text = edit["suggested_text"].strip()
     if len(text) < 10:
         return f"only {len(text)} character(s) after trimming whitespace -- likely a generation failure"
@@ -496,12 +360,9 @@ def _find_degenerate_text(edit: dict) -> str | None:
 
 
 def _find_length_explosion(edit: dict, max_ratio: float = 2.5) -> str | None:
-    """Resume rewords are supposed to be reword-IN-PLACE (stage 5's own
-    rule 2) -- roughly comparable length to what they replace, not a
-    restructuring. A bullet that mechanically satisfies the verbatim-
-    match requirement while ballooning several times longer than the
-    original is a real rule violation worth flagging, even though the
-    match itself is technically valid."""
+    """Resume rewords must stay roughly reword-IN-PLACE (stage 5 rule
+    2) -- several-times-longer than the original is a real violation
+    even if the verbatim match still technically holds."""
     if edit.get("target") != "resume" or edit.get("edit_type") != "reword":
         return None
     original = edit.get("original_text")
@@ -518,12 +379,9 @@ _BARE_CONTRACTION_START = re.compile(r"^\s*['\u2019](m|d|ve|ll|re|s)\b", re.IGNO
 
 
 def _find_broken_fragment(edit: dict) -> str | None:
-    """The exact mechanical shape of a real incident this session --
-    "'m drawn to Arcadia..." shipped with its subject missing, visible
-    immediately to anyone reading the first line. A sentence starting
-    with a bare contraction suffix ('m, 'd, 've, 'll, 're, 's) and no
-    leading pronoun is a specific, narrow, checkable pattern -- not a
-    general grammar checker, just this one recognizable failure shape."""
+    """Narrow, specific pattern from a real incident: a sentence
+    starting with a bare contraction suffix ('m/'d/'ve/'ll/'re/'s) and
+    no leading pronoun usually means the subject went missing."""
     text = edit["suggested_text"]
     if _BARE_CONTRACTION_START.match(text):
         return "starts with a bare contraction (e.g. \"'m\", \"'d\") -- likely missing its subject (\"I\")"
@@ -537,26 +395,9 @@ def show_edit(edit: dict, other_edits: list[dict] | None = None, baseline_text: 
     original = edit.get("original_text")
     suggested = edit["suggested_text"]
 
-    # The suggestion below costs nothing new -- it's built entirely
-    # from reasoning stage 6 (fact-check) already generated and stored
-    # directly on the edit dict, previously computed but never actually
-    # shown here. An edit with no "verification" key cleared fact-check
-    # AND stage 7's utility critique without a flag, which is a real,
-    # already-earned signal, not a guess -- shown so a clean edit can
-    # be confidently approved quickly instead of re-derived from
-    # scratch every time. A flagged edit still gets the SAME full
-    # manual a/r/e/q flow as before; this only makes the reason for
-    # the flag visible instead of forcing you to guess why it was cut.
-    # No numeric confidence score exists anywhere in this pipeline, and
-    # this doesn't invent one -- an LLM self-rating its own confidence
-    # (especially a local model) tends to be poorly calibrated, so a
-    # fabricated number would look more precise than it actually is.
-    # What's real: the verdict itself is already a coarse confidence
-    # tier, sharpened here into three honest levels instead of a fake
-    # score -- clean-with-real-claims is the strongest signal, clean-
-    # with-no-claims (mostly the mandatory company-specific paragraphs,
-    # legitimately exempt from claim-tracing) is a notch weaker, and
-    # flagged is "read this yourself."
+    # Reuses stage 6's own stored verification reasoning -- no new cost,
+    # no invented numeric confidence score. Three honest tiers: clean-
+    # with-claims > clean-no-claims (mandatory paragraphs) > flagged.
     placeholder_signal = _find_placeholder_leak(edit)
     degenerate_signal = _find_degenerate_text(edit)
     fragment_signal = _find_broken_fragment(edit)
@@ -589,21 +430,13 @@ def show_edit(edit: dict, other_edits: list[dict] | None = None, baseline_text: 
               f"utility review with no flags, though this edit references no specific "
               f"ledger claim (expected for the mandatory company-specific paragraphs)")
 
-    # Typo-checked and shown for EVERY edit, not just ones you end up
-    # hand-editing -- _check_for_typos previously only ran on text you
-    # personally typed, so AI-generated text you simply approved as-is
-    # never got checked at all. Real incident: "secirty", "conbtribute",
-    # and "distribute systems" (should be "distributed") all sat in a
-    # real, approved, assembled cover letter -- caught only by chance on
-    # a manual read after the fact, not by anything in this pipeline.
+    # Checked for EVERY edit, not just hand-edits -- previously only ran
+    # on typed text, so approved AI-generated text never got checked.
     typos = _check_for_typos(suggested)
     if typos:
         print(f"  ⚠ Possible typo(s) in the AI-generated text: {', '.join(typos)}")
 
-    # Blank line between the "suggested action" section above and the
-    # "given edit" section below -- run() adds the matching blank lines
-    # for the other two section breaks (title -> suggested action, and
-    # given edit -> the a/r/e/q prompt).
+    # Blank line between "suggested action" and "given edit" sections.
     print()
 
     if target == "cover_letter":
@@ -615,10 +448,8 @@ def show_edit(edit: dict, other_edits: list[dict] | None = None, baseline_text: 
         print(f"  REWORD (existing bullet, in place):")
         diff = difflib.unified_diff(original.split(), suggested.split(), lineterm="", n=999)
         print("    " + " ".join(list(diff)[3:]))  # skip the --- / +++ / @@ header lines
-        # The diff above shows WHAT changed; this repeats the resulting
-        # sentence on its own line with nothing else on it, so a minor
-        # tweak can be copy/pasted straight out of the terminal into
-        # (e)dit instead of retyping the whole bullet from scratch.
+        # Repeats the result on its own line so a minor tweak can be
+        # copy/pasted straight into (e)dit instead of retyped.
         print()
         print(f"    {suggested}")
         print()
@@ -635,17 +466,9 @@ def show_edit(edit: dict, other_edits: list[dict] | None = None, baseline_text: 
 
 
 def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: bool = False):
-    """revisit=True (only ever set for an explicit --app-id run) shows
-    EVERY edit, including ones that already have a recorded decision,
-    so you can change your mind on something you already approved or
-    rejected -- each edit's prior decision is shown right before you're
-    asked again. revisit=False (the default -- explicit --verified-edits/
-    --out-dir, or auto-discover) skips edits that already have a
-    decision entirely; they're left exactly as they were, and only
-    genuinely new/undecided edits get shown. Either way, decisions are
-    merged into the existing review_decisions.json rather than replacing
-    it wholesale, so a decision made in an earlier session (or on an
-    edit outside this run's --max-edits window) is never silently lost."""
+    """revisit=True shows every edit including already-decided ones (so
+    you can change your mind); default skips decided edits. Either way,
+    decisions merge into review_decisions.json, never replace it wholesale."""
     data = json.loads(Path(verified_edits_path).read_text(encoding="utf-8"))
     all_edits = data["passed"] + data["flagged"]
 
@@ -673,11 +496,8 @@ def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: boo
                   f"approve/reject/edit decisions.")
         return
 
-    # Loaded once, used by _find_duplicate_signal for any NEW cover-
-    # letter content (reword-in-place edits are expected to overlap
-    # with their own original bullet, so this only matters for the
-    # "assembled fresh" kind). Missing baseline just means duplicate
-    # checks against it are skipped, not a fatal error.
+    # Used by _find_duplicate_signal for new cover-letter content only.
+    # Missing baseline just skips that check, not a fatal error.
     baseline_text = ""
     cl_sample = CONFIG_ROOT / "cover_letter_sample"
     if cl_sample.is_dir():
@@ -685,12 +505,8 @@ def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: boo
         if txt_files:
             baseline_text = txt_files[0].read_text(encoding="utf-8")
 
-    # Loaded once, used by _find_unsupported_new_term -- reads
-    # routing.json (written during prepare) to find which variant's
-    # ledger this app used, same lookup every other stage relies on.
-    # Missing routing/ledger just means that check is skipped, not a
-    # fatal error -- an older app prepared before routing.json existed
-    # shouldn't break review.
+    # Used by _find_unsupported_new_term. Missing routing/ledger just
+    # skips that check -- older apps predate routing.json.
     claims_by_id: dict[str, str] = {}
     routing_path = Path(out_dir) / "routing.json"
     if routing_path.is_file():
@@ -708,15 +524,9 @@ def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: boo
     company_brief_text, company_name = _company_brief_text(Path(out_dir))
 
     def is_clean(edit: dict) -> bool:
-        """Eligible for bulk-accept only if NONE of the checks
-        show_edit displays would flag it -- fact-check, placeholder
-        leak, degenerate/near-empty text, broken sentence fragment,
-        length explosion, duplicate content, company-research
-        contradiction, or an unsupported new term on a cited claim.
-        Kept as one explicit list mirroring show_edit's own check
-        order, rather than re-deriving it, so the two can't quietly
-        drift apart and bulk-accept something the display would have
-        flagged a moment later."""
+        """Eligible for bulk-accept only if none of show_edit's checks
+        would flag it. Mirrors show_edit's own check order exactly so
+        the two can't quietly drift apart."""
         if "verification" in edit:
             return False
         if _find_placeholder_leak(edit) is not None:
@@ -758,16 +568,9 @@ def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: boo
 
     decisions: list[ReviewDecision] = []
 
-    # Opt-in, explicit, and never silent -- nothing gets approved
-    # without you seeing it and choosing to. When SOME edits in this
-    # app are clean (cleared fact-check and utility review with no
-    # flags -- see show_edit's suggestion line for what that means)
-    # and at least one is flagged, offer to bulk-accept just the clean
-    # ones so the manual a/r/e/q flow below only has to cover the
-    # edits that actually need judgment. Declining (or there being
-    # nothing clean to offer) falls through to reviewing every edit
-    # individually, exactly as before -- this changes nothing about
-    # the default, careful path.
+    # Opt-in, never silent -- nothing is approved without you seeing it.
+    # Offers to bulk-accept clean edits only when some are flagged too,
+    # so manual a/r/e/q review only covers what actually needs judgment.
     clean = [(s, e) for s, e in selected if is_clean(e)]
     flagged_selected = [(s, e) for s, e in selected if not is_clean(e)]
     app_label_preview = Path(out_dir).name
@@ -789,12 +592,9 @@ def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: boo
     app_label = Path(out_dir).name
     for _score, edit in selected:
         flag = " [FLAGGED: embellished — check the numbers]" if "verification" in edit else ""
-        # app_label repeated on every edit, not just once at the top of
-        # the batch -- edit_ids aren't unique across JDs (each stage 5
-        # run numbers its own edits fresh), so [cl-03] in one company's
-        # review looks identical to [cl-03] in another's a few edits
-        # later, especially in an auto-discover session walking through
-        # several JDs back-to-back. Found via real confusion in real use.
+        # Repeated per-edit, not once per batch -- edit_ids aren't
+        # unique across JDs, so [cl-03] can look identical in two
+        # different companies' reviews back-to-back in one session.
         print(f"\n\n[{app_label} / {edit['edit_id']}] {edit['section']}{flag}")
         prior = existing_decisions.get(edit["edit_id"])
         if prior:
@@ -808,15 +608,9 @@ def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: boo
                   claims_by_id=claims_by_id)
         print()  # blank line between the given edit above and the response prompt below
 
-        # Strict re-prompt loop: only a/r/e/q are ever accepted. Anything
-        # else -- including an accidental blank Enter -- re-prompts for
-        # THIS SAME edit rather than guessing what you meant. The
-        # previous behavior treated any unrecognized input (including
-        # empty input) as replacement text, which meant a stray Enter
-        # press got silently recorded as an APPROVED edit with an EMPTY
-        # final_text -- wiping that bullet from the resume entirely,
-        # not just skipping it. That's worse than a rejection, and easy
-        # to never notice until the final document.
+        # Only a/r/e/q accepted -- anything else (including blank Enter)
+        # re-prompts rather than guessing. A stray Enter used to get
+        # silently recorded as an approved edit with empty final_text.
         while True:
             choice = input("  (a)pprove / (r)eject / (e)dit / (q)uit: ").strip()
             choice_lower = choice.lower()
@@ -848,11 +642,8 @@ def run(verified_edits_path: str, out_dir: str, max_edits: int = 5, revisit: boo
         if quit_requested:
             break
 
-    # Merge, not replace -- a decision recorded in an earlier session
-    # (or on an edit this run's --max-edits window didn't reach) stays
-    # in place unless THIS run explicitly re-decided that same edit_id
-    # (only possible in revisit mode; non-revisit mode never touches an
-    # edit_id already in existing_decisions in the first place).
+    # Merge, not replace -- an earlier session's decision (or one this
+    # run's --max-edits window skipped) survives unless re-decided here.
     merged_by_id = dict(existing_decisions)
     for d in decisions:
         merged_by_id[d.edit_id] = d.model_dump()

@@ -5,9 +5,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// Fires on the Alt+Shift+E (Option+Shift+E on Mac) shortcut declared in
-// manifest.json's "commands" -- runs the same flow as clicking the popup
-// button, straight from the active tab, without needing the popup open.
+// Alt+Shift+E shortcut (see manifest.json "commands") -- same flow as
+// the popup button, without needing the popup open.
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== "extract-job-details") return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -15,26 +14,16 @@ chrome.commands.onCommand.addListener(async (command) => {
   runExtraction(tab.id, tab.url);
 });
 
-// Shared by the popup button and the keyboard shortcut: injects the
-// on-page status toast, pulls the job-posting text out of the tab, and
-// hands it to processWithGeminiNano. Lives here (not popup.js) so the
-// shortcut path works with the popup never having been opened.
+// Shared by the popup button and the shortcut. Lives here (not popup.js)
+// so the shortcut path works without the popup ever having been opened.
 async function runExtraction(tabId, tabUrl, intakeMeta = null) {
   if (!tabId) return;
 
-  // Wall-clock span for the extension's own work: DOM scrape + Gemini
-  // Nano inference + JSON parse, ending right before handoff to native
-  // messaging (see the ExtractionRuntimeMs stamp in processWithGeminiNano).
-  // Not started any earlier than this -- popup-open time, tab-switch
-  // time, etc. aren't part of "how long did extraction take."
+  // Excludes popup-open/tab-switch time -- starts right at DOM scrape.
   const extractionStartedAt = Date.now();
 
-  // intakeMeta is only ever set when this run came from the file
-  // watcher's trigger server (see the save_job_details handler) -- the
-  // popup button and keyboard-shortcut paths call this with no 3rd arg,
-  // so IntakeTriggerId/IntakeEnqueuedAt simply won't be set on parsedData
-  // for those, same as py_file_watcher.py's own "absent = metric A not
-  // recorded, correct behavior" comment already documents.
+  // Only set when triggered by the file watcher's server; popup/shortcut
+  // paths pass no 3rd arg, so IntakeTriggerId/IntakeEnqueuedAt stay unset.
 
   await chrome.scripting.executeScript({
     target: { tabId },
@@ -128,7 +117,7 @@ async function runExtraction(tabId, tabUrl, intakeMeta = null) {
   });
   console.log(`[debug] extracted ${pageText.length} chars of page text`);
 
-  processWithGeminiNano(pageText, tabId, tabUrl, extractionStartedAt, intakeMeta);
+  await processWithGeminiNano(pageText, tabId, tabUrl, extractionStartedAt, intakeMeta);
 }
 
 async function processWithGeminiNano(rawText, tabId, sourceUrl, extractionStartedAt, intakeMeta = null) {
@@ -169,14 +158,8 @@ async function processWithGeminiNano(rawText, tabId, sourceUrl, extractionStarte
     });
     console.log("[debug] session created, about to call prompt()");
 
-    // Was 7000 -- too tight once real job postings' Requirements/
-    // Responsibilities sections are included; that limit combined with
-    // whole-page extraction is what caused early runs to come back with
-    // empty Requirements/Responsibilities and a mid-sentence-truncated
-    // description. Gemini Nano's context window has room for more; this
-    // is still a real limit, just a more realistic one -- if extraction
-    // is thin again, check the [debug] log line above for how many
-    // characters were actually extracted vs. how many made it through.
+    // If extraction looks thin, check the [debug] line above for how
+    // many chars were actually extracted vs. how many made it through.
     const safeText = rawText.substring(0, 14000);
     console.log(`[debug] rawText was ${rawText.length} chars, sending ${safeText.length} to the model`);
     
@@ -261,32 +244,24 @@ Generate the JSON object using ONLY the required template keys now:`;
       };
     }
 
-    // The tab URL is known deterministically from chrome.tabs -- no
-    // reason to have the model guess at it from page text (which
-    // usually doesn't even contain its own URL), so it's stamped in
-    // here rather than added to the extraction prompt.
+    // Stamped from chrome.tabs, not the extraction prompt -- page text
+    // usually doesn't contain its own URL anyway.
     parsedData.SourceURL = sourceUrl || null;
 
-    // Stamped here, not passed to the model -- this is our own wall-clock
-    // measurement, not something Gemini Nano could reliably report on
-    // itself. Covers DOM scrape + inference + parse; see the const's own
-    // comment in runExtraction() for exactly what's in/out of this span.
+    // Our own wall-clock measurement (DOM scrape + inference + parse),
+    // not something the model could report on itself.
     parsedData.ExtractionRuntimeMs = Date.now() - extractionStartedAt;
 
-    // Only set when this run came from an intake trigger -- see
-    // runExtraction()'s intakeMeta comment. harvester_adapter.py maps
-    // these into JDInput.intake_trigger_id / intake_enqueued_at, which
-    // py_file_watcher.py's Metric A reads back out.
+    // harvester_adapter.py maps these into JDInput.intake_trigger_id /
+    // intake_enqueued_at for py_file_watcher.py's Metric A.
     if (intakeMeta) {
       parsedData.IntakeTriggerId = intakeMeta.intakeTriggerId;
       parsedData.IntakeEnqueuedAt = intakeMeta.intakeEnqueuedAt;
     }
 
-    // Previously: JSON.stringify + a data: URL passed to chrome.downloads.download(),
-    // landing in the Downloads folder alongside unrelated files. Now: send the parsed
-    // object straight to CVTailor's intake stage over native messaging -- no file in
-    // Downloads, no manual move, no naming collisions with anything else you download.
-    sendToCVTailorIntake(parsedData, isFallback, tabId);
+    // Sends straight to CVTailor's intake stage over native messaging --
+    // no Downloads-folder file, no manual move.
+    await sendToCVTailorIntake(parsedData, isFallback, tabId);
 
   } catch (error) {
     console.error("AI Processing failed:", error);
@@ -295,39 +270,70 @@ Generate the JSON object using ONLY the required template keys now:`;
 }
 
 function sendToCVTailorIntake(parsedData, isFallback, tabId) {
-  let port;
-  try {
-    port = chrome.runtime.connectNative('com.thesistoolkit.cvtailor_intake');
-  } catch (error) {
-    updateToast(tabId, `❌ Native host connection failed: ${error.message}`, true);
-    return;
-  }
-
-  port.onMessage.addListener((response) => {
-    if (response.ok) {
-      const msg = isFallback
-        ? `⚠️ Sent (with warnings) to CVTailor -> app_id: ${response.app_id}`
-        : `✅ Sent to CVTailor -> app_id: ${response.app_id}`;
-      updateToast(tabId, msg, isFallback);
-    } else {
-      updateToast(tabId, `❌ CVTailor intake error: ${response.error}`, true);
+  return new Promise((resolve) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative('com.thesistoolkit.cvtailor_intake');
+    } catch (error) {
+      updateToast(tabId, `❌ Native host connection failed: ${error.message}`, true);
+      resolve();
+      return;
     }
-    port.disconnect();
-  });
 
-  port.onDisconnect.addListener(() => {
-    if (chrome.runtime.lastError) {
-      console.error("Native host disconnected:", chrome.runtime.lastError);
-      updateToast(
-        tabId,
-        `❌ Native host error: ${chrome.runtime.lastError.message} ` +
-        `(is it installed? see extension/native_host/README.md)`,
-        true
-      );
-    }
-  });
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve();
+    };
 
-  port.postMessage(parsedData);
+    // Chrome's native messaging can silently wedge: connectNative() succeeds
+    // but the port NEVER fires onMessage or onDisconnect. Observed firsthand
+    // -- a trigger that hit this froze pollInFlight forever, since pollOnce()
+    // itself never returned, silently disabling ALL future polling with no
+    // error anywhere. This timeout is the hard ceiling that guarantees this
+    // promise (and therefore pollOnce) always eventually resolves.
+    const timeoutId = setTimeout(() => {
+      console.error("Native host call timed out after 20s -- treating as failed.");
+      updateToast(tabId, `❌ Native host timed out (no response after 20s)`, true);
+      try { port.disconnect(); } catch (e) { /* already gone */ }
+      finish();
+    }, 20000);
+
+    let gotResponse = false;
+
+    port.onMessage.addListener((response) => {
+      gotResponse = true;
+      if (response.ok) {
+        const msg = isFallback
+          ? `⚠️ Sent (with warnings) to CVTailor -> app_id: ${response.app_id}`
+          : `✅ Sent to CVTailor -> app_id: ${response.app_id}`;
+        updateToast(tabId, msg, isFallback);
+      } else {
+        updateToast(tabId, `❌ CVTailor intake error: ${response.error}`, true);
+      }
+      port.disconnect();
+    });
+
+    // Fires after EVERY disconnect, including the clean one triggered by our
+    // own port.disconnect() above -- only treat it as an error if we never
+    // got a response first.
+    port.onDisconnect.addListener(() => {
+      if (!gotResponse && chrome.runtime.lastError) {
+        console.error("Native host disconnected:", chrome.runtime.lastError);
+        updateToast(
+          tabId,
+          `❌ Native host error: ${chrome.runtime.lastError.message} ` +
+          `(is it installed? see extension/native_host/README.md)`,
+          true
+        );
+      }
+      finish();
+    });
+
+    port.postMessage(parsedData);
+  });
 }
 
 function updateToast(tabId, message, isError = false) {
@@ -341,10 +347,7 @@ function updateToast(tabId, message, isError = false) {
         toast.style.borderColor = err ? '#ef4444' : '#22c55e';
         toast.style.borderWidth = '2px';
 
-        // Update only the message text, not the whole toast -- a full
-        // innerHTML replace here would also wipe out the close button,
-        // which needs to survive every status update (capturing ->
-        // success/error), not just exist at creation time.
+        // Text-only update -- a full innerHTML replace would wipe the close button.
         const msgSpan = toast.querySelector('.job-harvester-toast-msg');
         if (msgSpan) {
           msgSpan.textContent = msg;
@@ -366,10 +369,7 @@ function updateToast(tabId, message, isError = false) {
           toast.appendChild(closeBtn);
         }
 
-        // No auto-dismiss timer -- the whole point of this fix is that
-        // a quick glance at the tab tells you whether it succeeded,
-        // without needing to check the extraction folder on disk. The
-        // toast now sits until you actually click the × to close it.
+        // No auto-dismiss -- sits until you click × to close it.
       }
     },
     args: [message, isError]
@@ -377,10 +377,8 @@ function updateToast(tabId, message, isError = false) {
 }
 
 
-// Polls the local trigger server every few seconds. When a pending trigger
-// shows up, dispatches to the matching handler by `action` name, then acks
-// it so it isn't processed twice. Requires "http://127.0.0.1/*" (or the
-// specific port) in the extension's `host_permissions` in manifest.json.
+// Polls the local trigger server, dispatches by `action` name, then acks
+// it. Requires "http://127.0.0.1/*" in manifest.json's host_permissions.
  
 const TRIGGER_SERVER = "http://127.0.0.1:8765";
 const POLL_INTERVAL_MS = 3000;
@@ -389,33 +387,87 @@ const POLL_INTERVAL_MS = 3000;
 // Add a new case any time you add a new location in config.yaml.
 const ACTION_HANDLERS = {
   save_job_details: async (trigger) => {
-    const tab = await chrome.tabs.create({ url: trigger.url, active: false });
-    // Wait for the page to finish loading, then run the SAME extraction
-    // path the popup button and keyboard shortcut already use -- not a
-    // separate content-script message (there's no content script
-    // registered to receive one; that would be a dead end every time).
-    // trigger.id / trigger.created_at ride along so the resulting
-    // jd_input.json can carry them forward as IntakeTriggerId /
-    // IntakeEnqueuedAt -- see runExtraction()'s intakeMeta param.
-    await waitForTabComplete(tab.id);
-    await runExtraction(tab.id, trigger.url, {
+    const tabId = await loadInSharedWindow(trigger.url);
+    // Runs the SAME extraction path as the popup/shortcut. trigger.id /
+    // created_at ride along as IntakeTriggerId/IntakeEnqueuedAt.
+    await runExtraction(tabId, trigger.url, {
       intakeTriggerId: trigger.id,
       intakeEnqueuedAt: trigger.created_at,
     });
   },
- 
+
   archive_application: async (trigger) => {
     // e.g. mark an existing tracked application as archived — may not need a tab at all
     console.log("Archiving application, meta:", trigger.meta);
   },
- 
+
   scrape_comp_data: async (trigger) => {
-    const tab = await chrome.tabs.create({ url: trigger.url, active: false });
-    await waitForTabComplete(tab.id);
-    await chrome.tabs.sendMessage(tab.id, { type: "RUN_COMP_SCRAPE" });
+    const tabId = await loadInSharedWindow(trigger.url);
+    await chrome.tabs.sendMessage(tabId, { type: "RUN_COMP_SCRAPE" });
   },
 };
- 
+
+// ---------------------------------------------------------------------------
+// ONE reused background window for all auto-triggered extractions, rather
+// than spawning a new window per trigger. (A prior version created a fresh
+// window every poll and only closed it on success -- a trigger that kept
+// failing kept retrying every 3s with NOTHING to stop it, spawning a new
+// window each time until Chrome nearly took the machine down. Never again:
+// there is exactly one window, created lazily once, and every extraction
+// just navigates its single tab.)
+// ---------------------------------------------------------------------------
+let sharedWindowId = null;
+let sharedTabId = null;
+
+// Chrome requires new window bounds to be >=50% within SOME visible screen
+// space (an arbitrary off-screen coordinate throws "Invalid value for
+// bounds"), so on a multi-monitor setup we place it on a non-primary
+// display -- it'll physically appear there, just not in front of you.
+async function pickWindowBounds() {
+  try {
+    const displays = await chrome.system.display.getInfo();
+    const secondary = displays.find((d) => !d.isPrimary) || displays[0];
+    const b = secondary.workArea || secondary.bounds;
+    return { left: b.left + 20, top: b.top + 20, width: Math.min(1280, b.width - 40), height: Math.min(900, b.height - 40) };
+  } catch (e) {
+    // system.display unavailable (e.g. some Linux setups) -- fall back to
+    // whatever Chrome's default placement is rather than failing the run.
+    return {};
+  }
+}
+
+// Background tab (active: false) is render-throttled by Chrome -- and heavy
+// SPAs like LinkedIn additionally gate their own hydration on the Page
+// Visibility API -- so scraping it right after 'complete' often grabs an
+// unrendered shell (promo banners, empty description arrays) instead of the
+// real page. An unfocused window's ACTIVE tab is not considered hidden by
+// Chrome, so it renders normally without ever stealing focus.
+async function getSharedWindow() {
+  if (sharedWindowId !== null) {
+    try {
+      await chrome.windows.get(sharedWindowId);
+      return { windowId: sharedWindowId, tabId: sharedTabId };
+    } catch (e) {
+      // User closed it (or it never existed) -- fall through and recreate.
+      sharedWindowId = null;
+      sharedTabId = null;
+    }
+  }
+  const bounds = await pickWindowBounds();
+  const win = await chrome.windows.create({ url: "about:blank", focused: false, type: "normal", ...bounds });
+  sharedWindowId = win.id;
+  sharedTabId = win.tabs[0].id;
+  return { windowId: sharedWindowId, tabId: sharedTabId };
+}
+
+async function loadInSharedWindow(url) {
+  const { tabId } = await getSharedWindow();
+  await chrome.tabs.update(tabId, { url });
+  await waitForTabComplete(tabId);
+  await waitForContentReady(tabId);
+  return tabId;
+}
+
 function waitForTabComplete(tabId) {
   return new Promise((resolve) => {
     function listener(updatedTabId, changeInfo) {
@@ -427,36 +479,102 @@ function waitForTabComplete(tabId) {
     chrome.tabs.onUpdated.addListener(listener);
   });
 }
+
+// 'complete' only means the network load finished, not that a client-side
+// SPA has hydrated real content in yet. Poll body text length until it looks
+// like a real page (or give up after ~6s and proceed anyway).
+async function waitForContentReady(tabId, { minChars = 500, attempts = 8, delayMs = 750 } = {}) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const [{ result: length }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => (document.body?.innerText || "").trim().length,
+      });
+      if (length >= minChars) return;
+    } catch (e) {
+      // Tab may still be navigating -- ignore and retry.
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
  
+// trigger.id -> { attempts, nextRetryAt }. In-memory only (resets on
+// service worker restart) -- fine, since its only job is to stop a broken
+// trigger from being retried every single 3s tick forever. Capped backoff,
+// not unlimited retries: a trigger that just won't succeed still gets
+// retried, but slowly, instead of hammering the same failure in a tight
+// loop (which is what turned one bad trigger into 38 Chrome processes).
+const triggerBackoff = new Map();
+const MAX_BACKOFF_MS = 5 * 60 * 1000;
+
+// A single extraction (page load + content-ready wait + Gemini Nano
+// inference + native host round trip) routinely takes far longer than the
+// 3s alarm interval. Without this guard, chrome.alarms just keeps firing
+// pollOnce() again on top of the still-running one -- and since a trigger
+// isn't marked "done" until it fully finishes, EVERY overlapping call sees
+// the same still-pending trigger and starts processing it AGAIN, each racing
+// to create/grab the shared window. That's what caused windows to pile up
+// every 2-3 seconds even after switching to a single reused window: the
+// window was reused fine within one pollOnce() call, but 4-7 overlapping
+// calls each thought they were the only one running.
+let pollInFlight = false;
+
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 async function pollOnce() {
+  if (pollInFlight) return;
+  pollInFlight = true;
   try {
     const res = await fetch(`${TRIGGER_SERVER}/poll`);
     if (!res.ok) return;
     const { pending } = await res.json();
- 
+
     for (const trigger of pending) {
+      const backoff = triggerBackoff.get(trigger.id);
+      if (backoff && Date.now() < backoff.nextRetryAt) continue;
+
       const meta = JSON.parse(trigger.meta || "{}");
       const handler = ACTION_HANDLERS[trigger.action];
- 
+
       if (!handler) {
         console.warn(`No handler for action "${trigger.action}", skipping.`);
         continue;
       }
- 
+
       try {
-        await handler({ ...trigger, meta });
+        // Outer ceiling on top of the native-host-specific one -- covers a
+        // hang ANYWHERE in the chain (tab load, content-ready wait, Gemini
+        // Nano inference), not just native messaging. A hung handler here
+        // means pollInFlight never clears and NOTHING ever gets processed
+        // again, so this must never be allowed to wait forever.
+        await withTimeout(handler({ ...trigger, meta }), 90000, `trigger #${trigger.id}`);
         await fetch(`${TRIGGER_SERVER}/ack/${trigger.id}`, { method: "POST" });
+        triggerBackoff.delete(trigger.id);
       } catch (err) {
         console.error(`Handler for trigger #${trigger.id} failed:`, err);
-        // Deliberately not acking on failure — it'll retry next poll.
-        // Add a retry-count / dead-letter check here if that becomes noisy.
+        // Deliberately not acking on failure — it'll retry, but with
+        // growing backoff (3s, 6s, 12s, ... capped at 5min) instead of
+        // every poll tick.
+        const attempts = (backoff?.attempts || 0) + 1;
+        const delay = Math.min(POLL_INTERVAL_MS * 2 ** attempts, MAX_BACKOFF_MS);
+        triggerBackoff.set(trigger.id, { attempts, nextRetryAt: Date.now() + delay });
       }
     }
   } catch (err) {
     // Local server not running (PC asleep, task not started yet) — normal, just skip.
+  } finally {
+    pollInFlight = false;
   }
 }
- 
+
 // chrome.alarms survives service worker suspension better than setInterval.
 chrome.alarms.create("poll-job-pipeline", { periodInMinutes: POLL_INTERVAL_MS / 60000 });
 chrome.alarms.onAlarm.addListener((alarm) => {

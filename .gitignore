@@ -67,8 +67,8 @@ pipeline.yaml
 applications/*
 !applications/.gitkeep
 !applications/README.md
-logs/*
-!logs/.gitkeep
+log/*
+!log/.gitkeep
 
 # ---- src/util/py_zip_materials.py's output: a zip of every
 # applications/*/generated_materials/ file, staged for review/sharing.
@@ -89,3 +89,9 @@ Thumbs.db
 
 # ---- Claude ----
 .claude/
+
+# ---- Resume/cover-letter source-file cleanup holding area: files moved
+# here are already archived (with git history) in the separate
+# ThesisW/Resumes-CoverLetters repo -- this is just a reversible parking
+# spot before final deletion, never source. ----
+/_holding/

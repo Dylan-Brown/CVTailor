@@ -6,7 +6,7 @@ Generates throughput and velocity metrics for your pipeline.
 
 Calculates pending applications, weekly velocity, resume-variant splits, 
 and file-watcher timings. Appends a structured record of every run to 
-`logs/applications_stats.jsonl`.
+`log/applications_stats.jsonl`.
 
 Usage:
     python src/util/py_applications_stats.py [--archive | --variants | --timings | --extraction | --all]
@@ -22,13 +22,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "core"))
-from batch_common import APPLICATIONS_ROOT, ARCHIVED_DIR, CONFIG_ROOT, app_dirs, load_applicant_info, load_resume_variants
+from batch_common import APPLICATIONS_ROOT, ARCHIVE_ROOT, CONFIG_ROOT, app_dirs, load_applicant_info, load_resume_variants
 from io_utils import log_event
 
 LOG_PATH = APPLICATIONS_ROOT / "archive" / "apps_moved.log"
 FILE_WATCHER_CONFIG_PATH = CONFIG_ROOT / "file_watcher.json"
 _LOG_LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(\S+)\s+(.+)$")
-_LABELS = ("applied", "cut_off", "revisit", "test")
+_LABELS = ("applied", "cut_off", "revisit", "test", "done")
 
 
 def _job_search_week1_sunday() -> datetime:
@@ -107,19 +107,31 @@ def print_archive_breakdown() -> list[dict]:
     return weeks
 
 
+def _scan_roots() -> list[Path]:
+    """applications/ itself, plus every outcome subfolder under
+    applications/archive/ (applied/cut_off/revisit/test/done) --
+    each one directly holds app_id folders, same shape as
+    APPLICATIONS_ROOT, so callers can glob "*/..." against each with
+    no special-casing for which root it came from."""
+    roots = [APPLICATIONS_ROOT]
+    if ARCHIVE_ROOT.is_dir():
+        roots.extend(d for d in ARCHIVE_ROOT.iterdir() if d.is_dir())
+    return [r for r in roots if r.is_dir()]
+
+
 def print_variant_split() -> dict:
     """Resume variant split across every generated resume so far (live
-    applications/ plus applications/archived/) -- a rough throughput
-    signal for which variant is actually getting used, not a precise
-    count (a resume filename not matching any configured variant label
-    is simply not counted). Labels come from config/resume_variants/
-    (see load_resume_variants()), not hardcoded, so this stays correct
-    however many variants are configured -- two, three, or one."""
+    applications/ plus every applications/archive/<outcome>/) -- a
+    rough throughput signal for which variant is actually getting
+    used, not a precise count (a resume filename not matching any
+    configured variant label is simply not counted). Labels come from
+    config/resume_variants/ (see load_resume_variants()), not
+    hardcoded, so this stays correct however many variants are
+    configured -- two, three, or one."""
     labels = sorted(load_resume_variants().keys(), key=len, reverse=True)  # longest first, so
     # e.g. "AI Engineer" doesn't get shadowed by a shorter label that's also a substring match.
     counts = Counter()
-    roots = [r for r in (APPLICATIONS_ROOT, ARCHIVED_DIR) if r.is_dir()]
-    for root in roots:
+    for root in _scan_roots():
         for resume in root.glob("*/generated_materials/*Resume.*"):
             name_lower = resume.stem.lower()
             for label in labels:
@@ -242,8 +254,7 @@ def print_extraction_runtimes() -> dict:
     on (most existing applications won't)."""
     values: list[float] = []
     total_seen = 0
-    roots = [r for r in (APPLICATIONS_ROOT, ARCHIVED_DIR) if r.is_dir()]
-    for root in roots:
+    for root in _scan_roots():
         for jd_path in list(root.glob("*/jd_input.json")) + list(root.glob("*/jd_input.processed.json")):
             total_seen += 1
             try:
@@ -300,7 +311,7 @@ if __name__ == "__main__":
     else:
         record["pending"] = print_pending_count()
 
-    # logs/applications_stats.jsonl -- same log_event() convention every
+    # log/applications_stats.jsonl -- same log_event() convention every
     # stage script already uses (auto-prepends a "ts" field), just one
     # record per checkpoint run instead of one per pipeline stage.
     log_event("applications_stats", record)

@@ -20,11 +20,8 @@ from pydantic import BaseModel, Field
 
 class WarmContact(BaseModel):
     """Best-effort point-of-contact info pulled from the JD page itself
-    (poster, recruiter, hiring manager) -- for actually reaching a
-    human instead of a cold ATS submission. Every field is optional and
-    frequently empty; the extraction prompt is explicitly told to leave
-    a field blank rather than invent one, so an empty string here means
-    "not stated," not "extraction failed." """
+    (poster, recruiter, hiring manager). Every field is optional and
+    frequently empty -- means "not stated," not "extraction failed." """
     name: Optional[str] = None
     contact_method: Optional[str] = None  # e.g. "LinkedIn message", "Email"
     email: Optional[str] = None
@@ -33,18 +30,8 @@ class WarmContact(BaseModel):
 
 class JDInput(BaseModel):
     """Contract for the Chrome extension's output. `full_description_text`
-    is the only hard requirement — everything else is best-effort
-    enrichment. If the extension can only reliably grab the raw JD body
-    text, that alone is enough for stage 3/3 to work from; the rest
-    just makes the LLM's job easier and cheaper when it's available.
-
-    Tip for whoever's building the extension: check for a
-    `<script type="application/ld+json">` block with `"@type": "JobPosting"`
-    before falling back to DOM scraping — Greenhouse, Lever, Workday, and
-    most ATS-hosted postings (and many LinkedIn/Indeed listings) embed
-    schema.org JobPosting JSON-LD, which maps almost directly onto the
-    fields below and is far more reliable than reading visible text.
-    """
+    is the only hard requirement -- everything else is best-effort
+    enrichment the LLM can use when available."""
     source_url: Optional[str] = None  # stamped deterministically by the extension from chrome.tabs -- see harvester_adapter.py
     scraped_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     company: str
@@ -84,18 +71,14 @@ class JDInput(BaseModel):
     extraction_method: Literal["json_ld", "dom_heuristic", "manual_paste"] = "dom_heuristic"
     extension_version: Optional[str] = None
     warm_contact: Optional[WarmContact] = None
-    extraction_runtime_ms: Optional[float] = None  # wall-clock ms for the extension's own
-        # DOM-scrape + Gemini Nano inference + JSON-parse span (runExtraction()'s start ->
-        # handoff to native messaging, see background.js) -- None for payloads captured
-        # before this field existed, or for anything not captured via the extension at all
-        # (manual JSON drops). See src/util/py_applications_stats.py for aggregation.
-    intake_enqueued_at: Optional[str] = None  # ISO timestamp the file-watcher trigger row
-        # was created -- only present when this JD arrived via the intake-drop path (not
-        # the popup/shortcut path, not a manual drop). Field name must match
-        # config/file_watcher.json's metrics.intake_timestamp_field (default this same
-        # name) -- see py_file_watcher.py's extract_intake_metrics_fields().
-    intake_trigger_id: Optional[int] = None  # the matching trigger row's id, same story --
-        # must match metrics.intake_trigger_id_field.
+    # wall-clock ms for the extension's own scrape+inference span
+    # (see background.js runExtraction()); None if not captured via the extension.
+    extraction_runtime_ms: Optional[float] = None
+    # ISO timestamp the file-watcher trigger row was created; only set
+    # for JDs that arrived via the intake-drop path. Field name must
+    # match config/file_watcher.json's metrics.intake_timestamp_field.
+    intake_enqueued_at: Optional[str] = None
+    intake_trigger_id: Optional[int] = None  # matching trigger row's id; same field-name rule
 
 
 
@@ -113,17 +96,8 @@ class Claim(BaseModel):
 
 class ClaimsLedger(BaseModel):
     source_file: str
-    # min_length=20 is a real sanity floor, not an arbitrary schema nicety
-    # -- raised from an initial 10 after a real run still slipped a 10-claim
-    # extraction through as technically valid (a real Backend-variant
-    # extraction on the same resume, same session, got 35). 10 was a floor
-    # against total collapse, not against "still way too thin." A real
-    # senior-level multi-page resume should extract 30-50+; 20 leaves real
-    # margin below that while still catching a severe under-extraction and
-    # forcing a retry with concrete, actionable feedback (pydantic's own
-    # "List should have at least 20 items, not N" message) rather than
-    # silently producing an impoverished ledger every downstream stage
-    # then treats as complete.
+    # min_length=20 is a sanity floor against severe under-extraction --
+    # a real senior resume should extract 30-50+ claims.
     claims: list[Claim] = Field(min_length=20)
 
 
@@ -148,16 +122,8 @@ class StyleLeakItem(BaseModel):
 
 class StyleLeakCheck(BaseModel):
     """Verdict from a second pass checking whether the style extraction
-    actually stayed content-free. The test is not "is this specific to
-    the company the sample letter targeted" — it's "is there any real,
-    checkable fact here at all," regardless of whose history it
-    belongs to. This file sits outside the claim-verification system
-    entirely, so any concrete fact in it — even a true one about the
-    writer's own past employer — can reach generation with zero
-    traceability and zero fact-check. Runs once, shared across the
-    whole batch. Returns exact verbatim strings (not descriptions) so
-    py_stage2_ingest.py can auto-redact the offending entries instead
-    of requiring a manual edit for every flag."""
+    stayed content-free -- any real, checkable fact leaking through
+    would reach generation with zero traceability. Runs once per batch."""
     has_leakage: bool
     items: list[StyleLeakItem] = Field(default_factory=list)
     reasoning: str
@@ -191,27 +157,13 @@ class JDRequirement(BaseModel):
 
 class EditBrief(BaseModel):
     requirements: list[JDRequirement]
-    # ge/le enforced for real, not just documented in a comment -- found
-    # via a real local-model run returning 60.0 (meant as "60%") where a
-    # 0.60 fraction was expected, silently accepted since a bare `float`
-    # has no bounds, then displayed as a nonsensical "6000%" by the print
-    # statement that correctly multiplies a 0-1 fraction by 100. Now
-    # triggers the same retry-and-correct loop the category enum already
-    # benefits from, instead of shipping a meaningless coverage number
-    # into every downstream stage that reads it.
+    # ge/le enforced for real -- a bare float once let a model's 60.0
+    # (meant as 60%) through as a fraction, printing as "6000%".
     coverage_score: float = Field(ge=0.0, le=1.0)  # matched required / total required
     gaps: list[str]  # requirements with zero matched claims
     overindexed_sections: list[str] = Field(default_factory=list)
-    # Required JD keywords checked deterministically against the claims
-    # ledger (no LLM call) -- as early in the pipeline as this can
-    # happen, right where stage 4 already has both loaded together.
-    # keyword_gaps_actionable: real claim supports the term, but it may
-    # not have been surfaced into an actual edit -- safe to hand stage 5
-    # as a targeted instruction, since the underlying fact is already
-    # real. keyword_gaps_unsupported: no claim mentions the term at all
-    # -- NOT fed back into generation (there's nothing genuine to build
-    # an edit from); surfaced to the candidate directly in the
-    # follow-up-steps file instead. See pipeline_common.classify_keyword_gaps.
+    # actionable: a real claim supports the term but it's not in an edit yet.
+    # unsupported: no claim mentions it -- surfaced to the candidate, not generation.
     keyword_gaps_actionable: dict[str, list[str]] = Field(default_factory=dict)
     keyword_gaps_unsupported: list[str] = Field(default_factory=list)
 
@@ -251,11 +203,9 @@ class VerificationReport(BaseModel):
 # ---------- Stage 7: Adversarial utility critic ----------
 
 class CritiqueResult(BaseModel):
-    """Stage 6 asks 'is this factually true?'. This asks the separate,
-    previously-unowned question: 'is this actually USEFUL for THIS job?'
-    Deliberately biased toward `cut` -- the existing resume/cover letter
-    is already good, so an edit has to earn its place, not merely avoid
-    being wrong."""
+    """Stage 6 asks 'is this true?'; this asks 'is this useful for THIS
+    job?' Deliberately biased toward `cut` -- an edit has to earn its
+    place, not merely avoid being wrong."""
     edit_id: str
     verdict: Literal["keep", "cut"]
     reasoning: str
