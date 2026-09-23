@@ -1,12 +1,22 @@
-(find this project's code on my GitHub at [https://github.com/Dylan-Brown/CVTailor](https://github.com/Dylan-Brown/CVTailor)!)
+ ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
+  ![LM Studio](https://img.shields.io/badge/LM%20Studio-local%20inference-6E56CF)
+  ![Anthropic Claude](https://img.shields.io/badge/Claude-optional-D97757?logo=anthropic&logoColor=white)
+  ![Gemini](https://img.shields.io/badge/Gemini-optional-4285F4?logo=googlegemini&logoColor=white)
+  ![Chrome Extension](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
+  ![Flask](https://img.shields.io/badge/Flask-native%20host%20bridge-000000?logo=flask&logoColor=white)
+  ![Pydantic](https://img.shields.io/badge/Pydantic-schema%20validation-E92063?logo=pydantic&logoColor=white)
+  ![License](https://img.shields.io/badge/License-MIT-green)
+<br>
 
-# CVTailor
+# CVTailor: Tailor Job App Materials
 
 **Agentic workflows meet deterministic RAG.** CVTailor is an automated, high-throughput pipeline that ingests job descriptions and outputs a tailored resume and cover letter. Built with verifiable fact-checking, it ensures high-quality personalization without LLM hallucinations.
 
+*Built while job searching, out of frustration with hand-tailoring the same resume for the hundredth time — and out of distrust for AI tools that "helpfully" invent experience I don't have.*
+
 ## The Core Philosophy: Deterministic RAG
 
-CVTailor eliminates the uncertainty of standard Retrieval-Augmented Generation (RAG). Instead of relying on similarity searches and hoping the LLM stays within bounds, this pipeline enforces strict, deterministic grounding:
+Your documents aren't suggestions. CVTailor eliminates the uncertainty of standard Retrieval-Augmented Generation (RAG) by replacing naive similarity measures with a garuntee of corretness and strict, deterministic truth.
 
 1. **Closed-Corpus Retrieval:** Your resume is extracted once into an atomic, ID-addressed `claims_ledger.json`. No similarity thresholds; the model sees the entire verified truth.
 2. **Required Citations:** Every proposed edit must explicitly cite its grounding `claim_id` at generation time.
@@ -14,7 +24,21 @@ CVTailor eliminates the uncertainty of standard Retrieval-Augmented Generation (
 
 *"Grounded in truth"* is not an assumption, but rather an auditable property of the pipeline.
 
-## Pipeline Architecture (10 Stages)
+## Pipeline Architecture
+
+```mermaid
+flowchart LR
+    A[00 Normalize Input] --> B[01 Score Input]
+    B --> C[02 Ingest CV Claims]
+    C --> D[03 Research Company]
+    D --> E[04 Analyze Gaps]
+    E --> F[05 Propose Updates]
+    F --> G{06 Fact Check Gate}
+    G -->|cited & verified| H[07 Evaluate Utility]
+    G -->|uncited or fabricated| X[Discarded — zero LLM calls]
+    H --> I[08 Agentic Review]
+    I --> J[09 Assemble Materials]
+```
 
 The pipeline is broken down into modular, standalone scripts (`src/stages/py_stageNN_<name>.py`).
 
@@ -63,3 +87,18 @@ CVTailor is built to process many applications concurrently.
 * **Auto-Formatting:** Automatically applies progressive typography compression to ensure your resume strictly hits your page limits (e.g., exactly 1 or 2 pages).
 
 *(Tip: Use **Text Blaze** (a browser extension for Chrome and Chromium-based browsers) to create text replacement shortcuts for quickly filling out application forms.)*
+
+## Screenshots
+
+<!-- TODO: drop in a screenshot or short GIF here — the Stage 8 review CLI or a before/after resume diff would show this off best -->
+
+## License
+
+Licensed under the [MIT License](LICENSE).
+
+## Contact
+
+Built by Dylan Brown.
+
+[LinkedIn](#) · [Portfolio](#)
+<!-- TODO: replace the # placeholders above with your actual LinkedIn/portfolio URLs -->
