@@ -25,3 +25,9 @@ watchdog>=4.0 # The next three are for the continuously running file watcher, wh
               # trigger the pipeline to run concurrently up to a configured number of times.
 pyyaml>=6.0
 flask>=3.0
+requests>=2.31  # src/sourcing/ats_boards.py + py_poll_ats_boards.py -- public
+                # Greenhouse/Lever/Ashby board APIs, no auth needed.
+beautifulsoup4>=4.12  # ats_boards.py's HTML-description stripping for the above.
+playwright>=1.45  # src/submission/py_submit_application.py -- ATS form fill +
+                  # submit. Also run `playwright install chromium` once after
+                  # pip install; the Python package alone doesn't ship the browser.

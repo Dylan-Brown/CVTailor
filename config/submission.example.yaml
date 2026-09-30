@@ -1,0 +1,25 @@
+# Copy to submission.yaml (gitignored). Run-level controls for
+# src/submission/py_submit_application.py -- WHICH companies are
+# eligible for auto-submit is controlled separately, per-company, by
+# the auto_submit flags in config/target_companies.yaml. This file only
+# controls how the run itself behaves.
+
+enabled: false  # Global kill-switch, on top of (not instead of) the
+                # per-company auto_submit flags -- while this is false,
+                # py_submit_application.py never opens a browser or
+                # submits anything, no matter what target_companies.yaml
+                # says. It still runs the Definition-of-Done check on
+                # every assembled application and pings Telegram the
+                # first time each one goes fully green, so nothing gets
+                # silently ready without you knowing. Flip to true only
+                # once you trust the notification + review flow and are
+                # ready to let allowlisted companies actually auto-submit.
+
+max_applications_per_run: 5  # ported from alpha-hunt's own default cap --
+                              # a runaway loop can only ever submit this
+                              # many real applications in one invocation.
+
+headless: true  # Set to false for your first real run against any new
+                 # company/ATS combo -- watching the browser fill (and
+                 # NOT submit, if the gate holds) the form is the whole
+                 # point of the plan's verification step, not optional.

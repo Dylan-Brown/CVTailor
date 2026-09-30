@@ -12,14 +12,18 @@ from pathlib import Path
 
 JOBS_ROOT = Path(__file__).resolve().parent
 sys.path.append(str(JOBS_ROOT / "src" / "core"))
+sys.path.append(str(JOBS_ROOT / "src"))
 from batch_common import (
     APPLICATIONS_ROOT, app_dirs, find_jd_input, is_processed,
     ensure_variant_ingest, pick_ledger_for_jd, safe_id_from_filename,
+    load_applicant_info,
 )
 from py_run_stage import sh, sh_capture, sh_optional, stage_script
 from llm_dispatch import default_provider
 from io_utils import load_model
 from schemas import JDInput
+from sourcing.scorer import check_disqualifiers, job_dict_from_jd_input, job_dict_from_posting
+from sourcing.config import ScoringConfig
 
 STAGE8_DISPATCHER = JOBS_ROOT / "src" / "ai_wrappers" / "py_stage08_reviewer_interface.py"
 ASSEMBLE_SCRIPT = JOBS_ROOT / "src" / "controls" / "py_pipeline_assemble.py"
@@ -39,18 +43,45 @@ def _stage1_enabled() -> bool:
     return False
 OPEN_URLS_SCRIPT = JOBS_ROOT / "src" / "controls" / "py_post_pipeline_open_app_urls.py"
 APPLICATIONS_STATS_SCRIPT = JOBS_ROOT / "src" / "util" / "py_applications_stats.py"
+SUBMIT_SCRIPT = JOBS_ROOT / "src" / "submission" / "py_submit_application.py"
 
 
-def drain_raw_intake() -> list[str]:
+def _disqualified_raw(raw_file: Path, cfg: ScoringConfig) -> str | None:
+    """Checks a not-yet-drained raw JD JSON against the hard preference
+    gate before stage 0 ever touches it. Returns the disqualification
+    reason, or None if it's fine to proceed. A raw file only reaches here
+    if it bypassed py_poll_ats_boards.py's own gate (a manually-dropped
+    file, the Chrome extension, or a stale file from before that gate
+    existed) -- this is the backstop that guarantees an excluded job
+    never gets processed at all, not even stage 0."""
+    try:
+        posting = json.loads(raw_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None  # let stage 0's own validation surface the real error
+    disq = check_disqualifiers(job_dict_from_posting(posting), cfg)
+    return disq[1] if disq else None
+
+
+def drain_raw_intake(cfg: ScoringConfig) -> list[str]:
     """Finds every raw JD JSON under applications/ (at root, or in a
     folder with no jd_input.json yet) and runs stage 0 on it, deleting
-    the raw file. A JD failing stage 0, or an ambiguous folder, is left in place."""
+    the raw file. A JD failing stage 0, or an ambiguous folder, is left in
+    place. A JD matching the hard preference gate (title keyword,
+    location, or another disqualifier) is deleted without ever running
+    stage 0 -- same gate py_poll_ats_boards.py checks before writing the
+    file in the first place, kept here too as a backstop for anything
+    that reached applications/ another way."""
     if not APPLICATIONS_ROOT.is_dir():
         return []
     drained = []
 
     root_files = sorted(p for p in APPLICATIONS_ROOT.iterdir() if p.is_file() and p.suffix.lower() == ".json")
     for raw_file in root_files:
+        reason = _disqualified_raw(raw_file, cfg)
+        if reason:
+            print(f"[skip] {raw_file.name}: {reason}")
+            raw_file.unlink()
+            continue
         app_id = safe_id_from_filename(raw_file)
         try:
             sh([sys.executable, stage_script(0),
@@ -75,6 +106,11 @@ def drain_raw_intake() -> list[str]:
                   f"{[p.name for p in raw_files]}", file=sys.stderr)
             continue
         raw_file = raw_files[0]
+        reason = _disqualified_raw(raw_file, cfg)
+        if reason:
+            print(f"[skip] {d.name}/: {reason}")
+            raw_file.unlink()
+            continue
         try:
             sh([sys.executable, stage_script(0),
                 "--jd-json", str(raw_file),
@@ -124,10 +160,18 @@ def _resolve_app_filter(app_filter: str | None) -> list[Path]:
     return matches
 
 
-def run_full_chain(app_filter: str | None) -> None:
+def run_full_chain(app_filter: str | None, full_auto: bool = False) -> None:
     """--full: continues past stage 7 into review, assembly, opening
     every live app's source_url, and a final stats checkpoint. Each
-    step runs via sh_optional() so a hiccup in one doesn't block the rest."""
+    step runs via sh_optional() so a hiccup in one doesn't block the rest.
+
+    --full-auto additionally runs py_submit_application.py right after
+    assembly, before opening URLs. That script only ever submits an
+    application that's both fully green on the Definition-of-Done gate
+    and for a company marked auto_submit: true -- anything else it skips
+    and leaves live, so "opening application URLs" below still runs for
+    everything that wasn't auto-submitted (a successful submit archives
+    the app out of the live queue, so there's nothing left to double-open)."""
     print("\n=== Stage 8: review ===")
     review_cmd = [sys.executable, str(STAGE8_DISPATCHER)]
     if app_filter:
@@ -137,6 +181,13 @@ def run_full_chain(app_filter: str | None) -> None:
     print("\n=== Stage 9: assemble ===")
     sh_optional([sys.executable, str(ASSEMBLE_SCRIPT)])
 
+    if full_auto:
+        print("\n=== Auto-submit (gated) ===")
+        submit_cmd = [sys.executable, str(SUBMIT_SCRIPT)]
+        if app_filter:
+            submit_cmd += ["--app-id", app_filter]
+        sh_optional(submit_cmd)
+
     print("\n=== Opening application URLs ===")
     sh_optional([sys.executable, str(OPEN_URLS_SCRIPT)])
 
@@ -144,8 +195,10 @@ def run_full_chain(app_filter: str | None) -> None:
     sh_optional([sys.executable, str(APPLICATIONS_STATS_SCRIPT), "--all"])
 
 
-def run_batch(app_filter: str | None, force: bool, dry_run: bool, provider: str, full: bool) -> None:
-    drain_raw_intake()
+def run_batch(app_filter: str | None, force: bool, dry_run: bool, provider: str,
+              full: bool, full_auto: bool = False) -> None:
+    scoring_cfg = ScoringConfig.from_dict(load_applicant_info().get("job_scoring", {}))
+    drain_raw_intake(scoring_cfg)
 
     try:
         ledger_paths, style_path, cover_letter_path = ensure_variant_ingest(force=force, dry_run=dry_run, provider=provider)
@@ -168,18 +221,30 @@ def run_batch(app_filter: str | None, force: bool, dry_run: bool, provider: str,
         # "Nothing pending" only covers stages 0-7 -- an app already
         # verified (or mid-review from last time) still needs --full to
         # continue into review/assemble/open-urls/stats.
-        if full and not dry_run:
-            run_full_chain(app_filter)
+        if (full or full_auto) and not dry_run:
+            run_full_chain(app_filter, full_auto=full_auto)
         return
 
     dry = ["--dry-run"] if dry_run else []
     prov = ["--provider", provider]
-    prepared, failed = [], []
+    prepared, failed, disqualified = [], [], []
 
     for out_dir in pending:
         app_id = out_dir.name
         jd_path = find_jd_input(out_dir)
         jd = load_model(jd_path, JDInput)
+
+        disq = check_disqualifiers(job_dict_from_jd_input(jd), scoring_cfg)
+        if disq:
+            _, reason = disq
+            print(f"\n[skip] {app_id}: {reason}")
+            (out_dir / "score_report.json").write_text(
+                json.dumps({"app_id": app_id, "score": 0.0,
+                            "breakdown": {"disqualified": reason}, "rationale": f"DISQUALIFIED: {reason}"},
+                           indent=2))
+            disqualified.append((app_id, reason))
+            continue
+
         ledger_path, variant_used, reasoning = pick_ledger_for_jd(jd, ledger_paths)
 
         print(f"\n=== Preparing {app_id} (resume variant: {variant_used}) ===")
@@ -217,7 +282,11 @@ def run_batch(app_filter: str | None, force: bool, dry_run: bool, provider: str,
             print(f"[FAILED] {app_id}: {e}", file=sys.stderr)
             failed.append((app_id, str(e)))
 
-    print(f"\n{len(prepared)} prepared, {len(failed)} failed")
+    print(f"\n{len(prepared)} prepared, {len(failed)} failed, {len(disqualified)} disqualified")
+    if disqualified:
+        print("\nDisqualified (hard preference gate -- left in place, not deleted):")
+        for a, reason in disqualified:
+            print(f"  {a}: {reason}")
     if failed:
         print("\nFailed (fix the cause and re-run run_pipeline.py — "
               "already-succeeded JDs are skipped automatically):")
@@ -225,14 +294,14 @@ def run_batch(app_filter: str | None, force: bool, dry_run: bool, provider: str,
             print(f"  {a}: {err}")
 
     if dry_run:
-        if full:
-            print("\n--full has nothing to continue into on a --dry-run pass "
+        if full or full_auto:
+            print("\n--full/--full-auto has nothing to continue into on a --dry-run pass "
                   "(stage 6 writes no real verified_edits.json in dry-run mode) "
-                  "-- skipping review/assemble/open-urls.")
+                  "-- skipping review/assemble/submit/open-urls.")
         return
 
-    if full:
-        run_full_chain(app_filter)
+    if full or full_auto:
+        run_full_chain(app_filter, full_auto=full_auto)
     elif prepared:
         print("\nReady for review — run:")
         print("  python src/ai_wrappers/py_stage08_reviewer_interface.py")
@@ -343,6 +412,13 @@ def main():
                           "for you, Agent doesn't), stage 9 assemble, and opening every live "
                           "app's source_url in Chrome. No effect combined with --dry-run (there's "
                           "nothing real yet to review).")
+    ap.add_argument("--full-auto", action="store_true",
+                     help="Everything --full does, plus running src/submission/py_submit_application.py "
+                          "(the tightly-gated auto-submit lane) between assemble and opening URLs. "
+                          "Only ever actually submits an application that's fully green on the "
+                          "Definition-of-Done gate AND whose company is marked auto_submit: true in "
+                          "config/target_companies.yaml -- everything else still falls through to "
+                          "opening its URL for manual apply, same as plain --full.")
 
     single_jd = ap.add_argument_group("single-JD end-to-end mode (pass --jd-json to enable)")
     single_jd.add_argument("--jd-json", default=None,
@@ -364,7 +440,7 @@ def main():
             ap.error(f"single-JD mode (--jd-json given) also requires: {', '.join(missing)}")
         run_single_jd(args)
     else:
-        run_batch(args.app, args.force, args.dry_run, args.provider, args.full)
+        run_batch(args.app, args.force, args.dry_run, args.provider, args.full, args.full_auto)
 
 
 if __name__ == "__main__":

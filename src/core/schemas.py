@@ -68,7 +68,7 @@ class JDInput(BaseModel):
                     "list. Lower priority than requirements_raw/"
                     "responsibilities_raw in gap analysis.",
     )
-    extraction_method: Literal["json_ld", "dom_heuristic", "manual_paste"] = "dom_heuristic"
+    extraction_method: Literal["json_ld", "dom_heuristic", "manual_paste", "ats_api"] = "dom_heuristic"
     extension_version: Optional[str] = None
     warm_contact: Optional[WarmContact] = None
     # wall-clock ms for the extension's own scrape+inference span
@@ -96,9 +96,12 @@ class Claim(BaseModel):
 
 class ClaimsLedger(BaseModel):
     source_file: str
-    # min_length=20 is a sanity floor against severe under-extraction --
-    # a real senior resume should extract 30-50+ claims.
-    claims: list[Claim] = Field(min_length=20)
+    # Normally min_length=20 (a sanity floor against severe under-extraction --
+    # a real senior resume should extract 30-50+ claims). Temporarily dropped
+    # to 5 on 2026-09-30 to isolate whether this constrained-array minimum is
+    # what's causing local-model grammar-decode stalls under tool_choice=
+    # required -- restore to 20 once that's confirmed/ruled out.
+    claims: list[Claim] = Field(min_length=5)
 
 
 class StyleProfile(BaseModel):

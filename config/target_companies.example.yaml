@@ -1,0 +1,185 @@
+# Copy this file to target_companies.yaml (gitignored -- personal values
+# only). Curated list of companies for src/sourcing/py_poll_ats_boards.py
+# to poll via their public Greenhouse/Lever/Ashby ATS APIs -- no scraping,
+# no auth, just each board's own public JSON endpoint.
+#
+# Find a company's token from its careers page URL:
+#   Greenhouse: boards.greenhouse.io/<token>
+#   Lever:      jobs.lever.co/<token>
+#   Ashby:      jobs.ashbyhq.com/<token>
+#
+# auto_submit controls src/submission/py_submit_application.py, not the
+# poller -- set to true only once you trust a company's ATS form well
+# enough to let a fully-passing Definition-of-Done gate submit for you
+# unattended. Every company starts false; flip it on deliberately, one
+# at a time. false still gets you discovery + tailoring + review, you
+# just submit that one by hand at the end.
+#
+# The lists below are the same placeholder companies that were already
+# hardcoded in src/sourcing/ats_boards.py (salvaged from an earlier
+# project) -- replace them with your own actual target list.
+
+greenhouse:
+  - name: Stripe
+    token: stripe
+    auto_submit: false
+  - name: Plaid
+    token: plaid
+    auto_submit: false
+  - name: Brex
+    token: brex
+    auto_submit: false
+  - name: Marqeta
+    token: marqeta
+    auto_submit: false
+  - name: Affirm
+    token: affirm
+    auto_submit: false
+  - name: Chime
+    token: chime
+    auto_submit: false
+  - name: Ramp
+    token: ramp
+    auto_submit: false
+  - name: Cloudflare
+    token: cloudflare
+    auto_submit: false
+  - name: Datadog
+    token: datadoghq
+    auto_submit: false
+  - name: Snowflake
+    token: snowflake
+    auto_submit: false
+  - name: MongoDB
+    token: mongodb
+    auto_submit: false
+  - name: PagerDuty
+    token: pagerduty
+    auto_submit: false
+  - name: Confluent
+    token: confluent
+    auto_submit: false
+  - name: GitLab
+    token: gitlab
+    auto_submit: false
+  - name: Figma
+    token: figma
+    auto_submit: false
+  - name: Notion
+    token: notion
+    auto_submit: false
+  - name: Zapier
+    token: zapier
+    auto_submit: false
+  - name: Netlify
+    token: netlify
+    auto_submit: false
+  - name: Supabase
+    token: supabase
+    auto_submit: false
+  - name: Anthropic
+    token: anthropic
+    auto_submit: false
+  - name: Scale AI
+    token: scaleai
+    auto_submit: false
+  - name: Cohere
+    token: cohere
+    auto_submit: false
+  - name: HashiCorp
+    token: hashicorp
+    auto_submit: false
+  - name: Grafana Labs
+    token: grafanalabs
+    auto_submit: false
+  - name: Temporal
+    token: temporal
+    auto_submit: false
+  - name: Incident.io
+    token: incidentio
+    auto_submit: false
+
+lever:
+  - name: Betterment
+    token: betterment
+    auto_submit: false
+  - name: Wealthfront
+    token: wealthfront
+    auto_submit: false
+  - name: Mercury
+    token: mercury
+    auto_submit: false
+  - name: Vercel
+    token: vercel
+    auto_submit: false
+  - name: Render
+    token: render
+    auto_submit: false
+  - name: Fly.io
+    token: fly
+    auto_submit: false
+  - name: PlanetScale
+    token: planetscale
+    auto_submit: false
+  - name: Pulumi
+    token: pulumi
+    auto_submit: false
+  - name: Automattic
+    token: automattic
+    auto_submit: false
+  - name: Buffer
+    token: buffer
+    auto_submit: false
+  - name: Basecamp
+    token: basecamp
+    auto_submit: false
+  - name: Carta
+    token: carta
+    auto_submit: false
+  - name: Rippling
+    token: rippling
+    auto_submit: false
+  - name: Gusto
+    token: gusto
+    auto_submit: false
+
+ashby:
+  - name: Linear
+    token: linear
+    auto_submit: false
+  - name: Retool
+    token: retool
+    auto_submit: false
+  - name: Loom
+    token: loom
+    auto_submit: false
+  - name: Coda
+    token: coda
+    auto_submit: false
+  - name: Descript
+    token: descript
+    auto_submit: false
+  - name: Buildkite
+    token: buildkite
+    auto_submit: false
+  - name: Clerk
+    token: clerk
+    auto_submit: false
+  - name: Resend
+    token: resend
+    auto_submit: false
+  - name: Neon
+    token: neon
+    auto_submit: false
+  - name: Turso
+    token: turso
+    auto_submit: false
+  - name: Cal.com
+    token: calcom
+    auto_submit: false
+  - name: Trigger.dev
+    token: triggerdev
+    auto_submit: false
+  - name: Mintlify
+    token: mintlify
+    auto_submit: false

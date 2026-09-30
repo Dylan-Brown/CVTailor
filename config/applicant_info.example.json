@@ -4,6 +4,16 @@
   "phone": "215-555-0100",
   "job_search_start_date": "2026-01-01",
 
+  "_submission_comment": "Only needed if you run src/submission/py_submit_application.py (auto-submit lane). linkedin_url/portfolio_url are optional form fields it best-effort fills. static_answers is a small, zero-LLM lookup for genuinely static/factual recurring questions (work authorization, sponsorship, etc.) -- checked before falling through to the grounded per-JD answer generator (src/util/py_answer_question.py) for anything else.",
+  "linkedin_url": "",
+  "portfolio_url": "",
+  "static_answers": {
+    "work authorization": "Yes",
+    "authorized to work": "Yes",
+    "require sponsorship": "No",
+    "visa sponsorship": "No"
+  },
+
   "_job_scoring_comment": "job_scoring is entirely optional -- only needed if you actually run src/stages/py_stage01_score_jd_input.py (see pipeline.yaml's run_stage1_scoring). Delete this comment key and everything below it if you don't use stage 1.",
   "job_scoring": {
     "experience_summary": "N+ years in [your field], most recently [your most recent/current role] at [employer]",
@@ -15,6 +25,7 @@
       "Next-most-wanted role type"
     ],
     "not_good_fit": ["A role type you'd technically qualify for but don't want"],
+    "excluded_title_keywords": ["A word that, if it appears in a job title, hard-disqualifies it (e.g. Manager, Staff, Designer)"],
     "min_salary": 150000,
     "max_salary": 400000,
     "required_remote": true,

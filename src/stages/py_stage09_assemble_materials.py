@@ -665,7 +665,7 @@ def run(resume_template, review_decisions_path, verified_edits_path,
     for edit in approved_cover_edits:
         # Stripped before matching -- an unstripped original_text once
         # ate its trailing blank-line separator, fusing two paragraphs together.
-        original = edit.get("original_text", "").strip()
+        original = (edit.get("original_text") or "").strip()
         replacement = edit["final_text"].strip()
 
         if not original:

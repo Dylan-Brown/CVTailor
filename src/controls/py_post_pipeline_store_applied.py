@@ -25,7 +25,10 @@ where it left off.
 Outcomes (default: applied):
     (none)      archive/applied/<app_id>   -- adds a row to
                 Application Progress.md if pipeline.yaml's
-                application_progress_md_path is configured
+                application_progress_md_path is configured, and mirrors
+                the application into the Resumes-CoverLetters git repo
+                as a job/<date>-<slug> branch (py_archive_to_resume_repo.py;
+                never blocks archiving if that mirror step fails)
     --cutoff    archive/cut_off/<app_id>   -- opens a
                 cutoff_explanation.txt in Notepad (single-app mode only;
                 --all writes an empty one per app instead of opening N
@@ -65,6 +68,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "core"))
 from batch_common import APPLICATIONS_ROOT, NON_APPLICATION_DIR_NAMES, app_dirs
+from py_archive_to_resume_repo import archive_application
 
 JOBS_ROOT = Path(__file__).resolve().parent.parent.parent
 PIPELINE_YAML = JOBS_ROOT / "pipeline.yaml"
@@ -337,6 +341,7 @@ def _move_one(src: Path, kind: str, dest_root: Path, label: str, open_notepad: b
 
     if kind == "applied":
         update_application_progress_md(dest)
+        archive_application(dest)
 
     if kind == "cutoff":
         explanation_path = dest / "cutoff_explanation.txt"

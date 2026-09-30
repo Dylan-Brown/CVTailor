@@ -220,12 +220,49 @@ PRIMARY_SIGNALS = re.compile(
 )
 
 
-def check_disqualifiers(job: dict) -> Optional[tuple[str, str]]:
+def job_dict_from_posting(posting: dict) -> dict:
+    """Maps a raw JDInput-shaped posting dict (role_title/company/location/
+    full_description_text -- what ats_boards.py fetchers and Adzuna search
+    results look like before/without JDInput validation) onto what
+    check_disqualifiers()/classify_role_type() expect. Mirrors
+    py_stage01_score_jd_input.py's _jd_input_to_job_dict(), which does the
+    same mapping for an already-validated JDInput object."""
+    return {
+        "title": posting.get("role_title") or posting.get("title") or "",
+        "company": posting.get("company") or "",
+        "location": posting.get("location") or "",
+        "description": posting.get("full_description_text") or posting.get("description") or "",
+    }
+
+
+def job_dict_from_jd_input(jd) -> dict:
+    """Same mapping as job_dict_from_posting(), for an already-validated
+    JDInput object (attribute access, not dict keys) -- what run_batch()'s
+    hard-gate check and py_stage01_score_jd_input.py's scoring both work
+    against."""
+    return {
+        "title": jd.role_title,
+        "company": jd.company,
+        "location": jd.location or "",
+        "description": jd.full_description_text,
+    }
+
+
+def check_disqualifiers(job: dict, cfg: Optional[ScoringConfig] = None) -> Optional[tuple[str, str]]:
+    title = job.get("title") or ""
     text = " ".join([
-        job.get("title") or "",
+        title,
         job.get("description") or "",
         job.get("location") or "",
     ])
+
+    if cfg is not None:
+        for keyword in cfg.excluded_title_keywords:
+            if re.search(rf"\b{re.escape(keyword)}\b", title, re.I):
+                reason = f"Title contains excluded keyword: {keyword}"
+                logger.info(f"Disqualified '{title}' @ '{job.get('company')}': {reason}")
+                return "title_excluded", reason
+
     for name, reason, pattern in DISQUALIFIER_PATTERNS:
         if pattern.search(text):
             if name == "clearance":
@@ -370,7 +407,7 @@ class JobScorer:
         """
         breakdown: dict = {}
 
-        disq = check_disqualifiers(job)
+        disq = check_disqualifiers(job, self.cfg)
         if disq:
             disq_name, disq_reason = disq
             breakdown["disqualified"] = disq_reason

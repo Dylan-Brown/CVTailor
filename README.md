@@ -85,6 +85,7 @@ CVTailor is built to process many applications concurrently.
 * **Always-On Automation:** Run the optional File Watcher (`src/auto_queue/py_file_watcher.py`) to automatically process new JDs the moment they are saved, complete with LM Studio warm-ups and cloud drive syncing.
 * **Smart Document Assembly:** Replaces text inside your `.docx` templates recursively without breaking your existing formatting, tables, or styles.
 * **Auto-Formatting:** Automatically applies progressive typography compression to ensure your resume strictly hits your page limits (e.g., exactly 1 or 2 pages).
+* **Discovery + Auto-Submit (optional):** Poll a curated list of companies' Greenhouse/Lever/Ashby boards directly (`src/sourcing/py_poll_ats_boards.py`) and, for companies you've explicitly opted in, auto-submit once an application is fully green on the Definition-of-Done gate below (`src/submission/py_submit_application.py`, Playwright-based, adapted from [alpha-hunt](https://github.com/mr-ravi26/alpha-hunt)). See `docs/QUICKSTART.md`'s "Discovery + Auto-Submit" section.
 
 *(Tip: Use **Text Blaze** (a browser extension for Chrome and Chromium-based browsers) to create text replacement shortcuts for quickly filling out application forms.)*
 

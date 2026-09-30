@@ -14,13 +14,14 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 DEFAULT_LMSTUDIO_BASE_URL = os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
-DEFAULT_MODEL_ID = os.environ.get("LMSTUDIO_MODEL", "qwen2.5-14b-instruct")
+DEFAULT_MODEL_ID = os.environ.get("LMSTUDIO_MODEL", "qwen2.5-7b-instruct")
 DEFAULT_EXE_CANDIDATES = [
     Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "LM Studio" / "LM Studio.exe",
     Path(os.environ.get("LOCALAPPDATA", "")) / "LM-Studio" / "LM Studio.exe",
@@ -64,7 +65,10 @@ def _launch_app(exe_candidates: list[Path]) -> None:
 def _lms_server_start() -> bool:
     """Idempotent -- exits 0 whether or not a server was already running."""
     try:
-        result = subprocess.run(["lms", "server", "start"], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["lms", "server", "start"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
@@ -75,7 +79,10 @@ def _loaded_model_identifiers() -> set[str]:
     Deliberately NOT /v1/models: with JIT model loading on, that
     endpoint lists every downloaded model, not just what's loaded."""
     try:
-        result = subprocess.run(["lms", "ps", "--json"], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(
+            ["lms", "ps", "--json"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+        )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return set()
     if result.returncode != 0:
@@ -89,7 +96,10 @@ def _loaded_model_identifiers() -> set[str]:
 
 def _lms_unload_model(model_id: str) -> bool:
     try:
-        result = subprocess.run(["lms", "unload", model_id], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["lms", "unload", model_id],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+        )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
@@ -108,12 +118,54 @@ def _evict_other_models(model_id: str) -> None:
             print(f"[lm_studio] `lms unload {loaded_id}` failed -- continuing anyway.")
 
 
+GPU_ADMISSION = Path(r"E:\Admin\gpu_admission.py")
+_MODEL_MB_HINTS = (("14b", 10500), ("13b", 9500), ("7b", 5200), ("3b", 2800))
+
+
+def _estimate_model_mb(model_id: str) -> int:
+    mid = model_id.lower()
+    for frag, mb in _MODEL_MB_HINTS:
+        if frag in mid:
+            return mb
+    return 8000
+
+
+def _gpu_admission_wait(model_id: str, max_wait_s: int = 1800) -> bool:
+    """Ask the machine-wide GPU arbiter (E:\\Admin\\gpu_admission.py) before
+    loading; on denial, sleep the arbiter's retry_after_s and retry until
+    max_wait_s is spent. Fails OPEN if the arbiter is missing or broken --
+    admission is cooperative, never a hard dependency."""
+    if not GPU_ADMISSION.exists():
+        return True
+    need = _estimate_model_mb(model_id)
+    deadline = time.monotonic() + max_wait_s
+    while True:
+        try:
+            r = subprocess.run(
+                [sys.executable, str(GPU_ADMISSION), "check",
+                 "--need-mb", str(need), "--requester", "cvtailor", "--tag", model_id],
+                capture_output=True, text=True, timeout=30)
+            verdict = json.loads(r.stdout)
+        except Exception as e:
+            print(f"[gpu] admission check unavailable ({e}) -- proceeding without it.")
+            return True
+        if verdict.get("allow"):
+            return True
+        wait = int(verdict.get("retry_after_s", 60))
+        if time.monotonic() + wait > deadline:
+            print(f"[gpu] GPU still contended after {max_wait_s}s -- deferring this run. "
+                  f"Last verdict: {verdict.get('reason')}")
+            return False
+        print(f"[gpu] {verdict.get('reason')} -- retrying in {wait}s")
+        time.sleep(wait)
+
+
 def _lms_load_model(model_id: str, timeout: int) -> bool:
     print(f"[lm_studio] loading {model_id!r} (this can take a while for a 14B model)...")
     try:
         result = subprocess.run(
-            ["lms", "load", model_id, "--yes"],
-            capture_output=True, text=True, timeout=timeout,
+            ["lms", "load", model_id, "--yes", "--ttl", "3600"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
         )
     except FileNotFoundError:
         raise RuntimeError(
@@ -177,6 +229,8 @@ def ensure_lm_studio_ready(
     _evict_other_models(model_id)
 
     if model_id not in _loaded_model_identifiers():
+        if not _gpu_admission_wait(model_id):
+            return False
         if not _lms_load_model(model_id, model_load_timeout):
             return False
 

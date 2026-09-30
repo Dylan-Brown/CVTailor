@@ -26,6 +26,11 @@ extension/native_host/com.thesistoolkit.cvtailor_intake.json
 # placeholders, since "example" only appears mid-name, not at the end. ----
 config/credentials/*_key.txt
 !config/credentials/*_key.example.txt
+# adzuna_app_key.txt is already caught by the *_key.txt pattern above;
+# adzuna_app_id.txt needs its own line since it doesn't end in "_key.txt".
+config/credentials/adzuna_app_id.txt
+# telegram_bot_token.txt doesn't end in "_key.txt" either -- same reason.
+config/credentials/telegram_bot_token.txt
 
 # ---- Your personal inputs: resume, cover letter sample, applicant info ----
 # (folder structure kept via .gitkeep; actual files never committed)
@@ -62,6 +67,14 @@ config/file_watcher.json
 # paths (e.g. application_progress_md_path) -- pipeline.example.yaml is
 # the tracked template to copy from. ----
 pipeline.yaml
+
+# ---- Alpha-hunt integration configs: real ones carry your actual
+# curated companies (with auto_submit decisions) and run-level caps --
+# the *.example.yaml files are the tracked templates to copy from. ----
+config/target_companies.yaml
+config/submission.yaml
+config/adzuna.yaml
+config/telegram.yaml
 
 # ---- Pipeline working state and final output — generated, personal, or both ----
 applications/*

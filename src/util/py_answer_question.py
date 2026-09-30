@@ -69,7 +69,15 @@ def _resolve_app_dir(app_id: str) -> Path:
 ANSWER_SYSTEM = load_prompt("util/answer_question_system.txt")
 
 
-def run(question: str, variant: str | None, app_id: str | None, provider: str, out: str | None):
+def get_answer(question: str, variant: str | None = None, app_id: str | None = None,
+               provider: str | None = None) -> tuple[str, str | None]:
+    """The grounded-answer generation itself, split out of run() so
+    py_submit_application.py can call it in-process (no need to shell
+    out and re-parse stdout) for freeform ATS form questions during
+    tightly-gated auto-submit. Returns (answer, resolved_app_id) --
+    resolved_app_id normalizes a substring --app-id match to the real
+    folder name, or is None if no app_id was given at all."""
+    provider = provider or default_provider()
     company_brief = None
     jd = None
 
@@ -123,16 +131,20 @@ def run(question: str, variant: str | None, app_id: str | None, provider: str, o
         tier="standard",
         provider=provider,
     )
+    return result.answer, app_id
 
-    print(f"\n{result.answer}\n")
+
+def run(question: str, variant: str | None, app_id: str | None, provider: str, out: str | None):
+    answer, resolved_app_id = get_answer(question, variant, app_id, provider)
+    print(f"\n{answer}\n")
 
     if out:
-        Path(out).write_text(result.answer, encoding="utf-8")
+        Path(out).write_text(answer, encoding="utf-8")
         print(f"Saved -> {out}", file=sys.stderr)
-    elif app_id:
-        out_path = APPLICATIONS_ROOT / app_id / "extra_question_answers.txt"
+    elif resolved_app_id:
+        out_path = APPLICATIONS_ROOT / resolved_app_id / "extra_question_answers.txt"
         with open(out_path, "a", encoding="utf-8") as f:
-            f.write(f"Q: {question}\nA: {result.answer}\n\n")
+            f.write(f"Q: {question}\nA: {answer}\n\n")
         print(f"Appended -> {out_path}", file=sys.stderr)
 
 

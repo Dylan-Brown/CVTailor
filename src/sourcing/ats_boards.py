@@ -2,7 +2,9 @@
 """
 sourcing/ats_boards.py -- fetches postings from Greenhouse/Lever/Ashby's
 public JSON APIs (no scraping, no auth needed). Yields dicts already
-shaped to JDInput's schema. Not currently imported by anything else.
+shaped to JDInput's schema. Used by py_poll_ats_boards.py, which supplies
+the real companies/keywords (from config/target_companies.yaml and
+config/applicant_info.json) instead of the placeholder lists below.
 """
 
 
@@ -77,8 +79,23 @@ def _infer_remote(location: str, description: str) -> str:
 
 
 def _matches_keywords(title: str, description: str, keywords: list[str]) -> bool:
-    text = f"{title} {description or ''}".lower()
-    return any(kw.lower() in text for kw in keywords)
+    """Word-boundary keyword match: one hit in the title qualifies; without
+    a title hit, at least 2 distinct keywords must appear in the description.
+    Bare substring over title+description let e.g. a "Counsel, Product" JD
+    through because its prose contained "cloud architecture". Punctuation is
+    normalized to spaces ("Full-Stack" == "Full Stack") and the last keyword
+    word may take an s/ing suffix ("Platform Engineering" matches "Platform
+    Engineer") -- but nothing wider, so "architecture" != "architect"."""
+    def _norm(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", (text or "").lower())
+
+    def _hits(text: str) -> int:
+        return sum(1 for kw in keywords
+                   if re.search(rf"\b{re.escape(_norm(kw).strip())}(s|ing)?\b", text))
+
+    if _hits(_norm(title)) >= 1:
+        return True
+    return _hits(_norm(description)) >= 2
 
 
 def _to_jd_input_dict(*, source_url: str, company: str, role_title: str, location: str,

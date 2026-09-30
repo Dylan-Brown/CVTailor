@@ -10,6 +10,20 @@ All commands run from the `jobs/` root directory.
 *   **Assemble PDFs:** `python src\controls\py_pipeline_assemble.py`.
 *   **Verify before sending:** `python src\checkpoints\py_post_pipeline_verify_materials.py --app-id <app_id>`.
 
+## Discovery + Auto-Submit (optional, opt-in per company)
+Requires copying `config/target_companies.example.yaml` -> `target_companies.yaml`
+(curate your own companies + board tokens) and setting `job_scoring.target_titles`
+in `config/applicant_info.json`.
+*   **Poll tracked companies (Greenhouse/Lever/Ashby):** `python src\sourcing\py_poll_ats_boards.py`
+    -- drops new matching postings straight into `applications/` for the next `run_pipeline.py` run.
+*   **Broad market scan, notify-only (optional):** `python src\sourcing\py_poll_adzuna.py`
+    (needs `config/adzuna.yaml` + Adzuna credentials) -- appends matches to `log/adzuna_matches.jsonl`,
+    never feeds the pipeline directly.
+*   **Auto-submit, tightly gated:** `python src\submission\py_submit_application.py --dry-run` first,
+    then for real. Only ever submits an app that's fully green on the Definition-of-Done gate below
+    AND whose company has `auto_submit: true` in `target_companies.yaml` -- everything else is left
+    for manual apply. `run_pipeline.py --full-auto` chains this in automatically after assembly.
+
 ## Full Pipeline Explainer
 The batch flow executes in this sequence automatically via `run_pipeline.py`:
 *   **Stage 0:** Normalize raw JD JSON into `jd_input.json`.

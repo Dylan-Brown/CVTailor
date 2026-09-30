@@ -40,6 +40,12 @@ class ScoringConfig:
     target_firms: list[str] = field(default_factory=list)
     target_titles: list[str] = field(default_factory=list)
 
+    # Hard title-keyword exclusions (e.g. "Manager", "Staff", "Designer") --
+    # unlike target_titles (a soft scoring signal), a match here is a hard
+    # disqualifier everywhere check_disqualifiers() runs: discovery-time
+    # (py_poll_ats_boards.py/py_poll_adzuna.py) and stage 1 scoring alike.
+    excluded_title_keywords: list[str] = field(default_factory=list)
+
     @classmethod
     def from_dict(cls, data: dict) -> "ScoringConfig":
         """Builds a ScoringConfig from config/applicant_info.json's
@@ -54,4 +60,5 @@ class ScoringConfig:
             weights=ScoringWeights.from_dict(data.get("weights", {})),
             target_firms=list(data.get("target_firms", [])),
             target_titles=list(data.get("target_titles", [])),
+            excluded_title_keywords=list(data.get("excluded_title_keywords", [])),
         )

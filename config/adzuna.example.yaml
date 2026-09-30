@@ -1,0 +1,9 @@
+# Copy this file to adzuna.yaml (gitignored). Config for the optional,
+# notify-only broad-market lane (py_poll_adzuna.py) -- separate from the
+# curated Greenhouse/Lever/Ashby discovery lane, and never auto-submits
+# or feeds run_pipeline.py directly. Keywords/min_salary come from
+# config/applicant_info.json's existing job_scoring section, reused
+# rather than duplicated here.
+
+country: us          # Adzuna country code -- see https://developer.adzuna.com/docs
+where: ""             # optional location filter, e.g. "Philadelphia"; empty = nationwide

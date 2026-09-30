@@ -1,0 +1,14 @@
+# Copy to telegram.yaml (gitignored -- personal chat id). Pairs with
+# config/credentials/telegram_bot_token.txt for the bot token itself,
+# kept separate so the secret (token) and the merely-personal (chat_id)
+# follow the same split used elsewhere in config/.
+#
+# chat_id: YOUR numeric Telegram user id, not the bot's. To get it:
+#   1. Create a bot via @BotFather in Telegram (see
+#      config/credentials/telegram_bot_token.example.txt for the steps).
+#   2. Send your new bot any message (e.g. "hi").
+#   3. Visit https://api.telegram.org/bot<your token>/getUpdates in a
+#      browser -- your message will be there with "chat":{"id": N, ...}.
+#      N is your chat_id.
+enabled: true
+chat_id: 000000000
